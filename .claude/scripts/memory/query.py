@@ -97,6 +97,30 @@ def cmd_dedup(args: argparse.Namespace) -> None:
         conn.close()
 
 
+def cmd_prune(args: argparse.Namespace) -> None:
+    from .prune import prune, archive_old_drafts
+    from .db import init_db
+    db_path = Path(args.db) if args.db else _DB
+    vault_path = Path(args.vault) if args.vault else _VAULT
+    dry_run = not args.execute
+
+    conn = init_db(db_path)
+    try:
+        pruned = prune(conn, dry_run=dry_run)
+    finally:
+        conn.close()
+
+    archived = archive_old_drafts(vault_path, dry_run=dry_run)
+
+    mode = "DRY RUN" if dry_run else ""
+    if mode:
+        print(f"[{mode}] Prunable chunks: {pruned}")
+        print(f"[{mode}] Old drafts to archive: {archived}")
+    else:
+        print(f"Prunable chunks: {pruned}")
+        print(f"Old drafts to archive: {archived}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Memory RAG system CLI",
@@ -175,6 +199,29 @@ def main() -> None:
         help="Actually delete duplicates (default: dry-run only)",
     )
     dedup_parser.set_defaults(func=cmd_dedup)
+
+    # prune subcommand
+    prune_parser = subparsers.add_parser(
+        "prune", help="Prune low-value chunks and archive old drafts"
+    )
+    prune_parser.add_argument(
+        "--db",
+        default=None,
+        metavar="PATH",
+        help=f"Path to SQLite database (default: {_DB})",
+    )
+    prune_parser.add_argument(
+        "--vault",
+        default=None,
+        metavar="PATH",
+        help=f"Path to vault directory (default: {_VAULT})",
+    )
+    prune_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually prune and archive (default: dry-run only)",
+    )
+    prune_parser.set_defaults(func=cmd_prune)
 
     args = parser.parse_args()
     args.func(args)
