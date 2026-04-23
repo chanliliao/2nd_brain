@@ -1,0 +1,85 @@
+# Memory category registry
+# Adding a new category: add an entry here + run `memory-add-category` skill.
+# NO code change required. The reflection agent reads this file at runtime.
+#
+# Fields:
+#   id: folder name (must match vault/Memory/<id>/ directory)
+#   label: human-readable name used in MEMORY.md section headers
+#   promote_threshold: daily mention count before fact is auto-promoted to MEMORY.md
+#   reflection_prompt: instruction to the reflection agent for this category
+
+categories:
+  - id: coding-projects
+    label: Coding Projects
+    promote_threshold: 3
+    reflection_prompt: "Extract architecture decisions, blockers, shipped features, and technical choices. Note the project name and date."
+
+  - id: job-hunt
+    label: Job Hunt
+    promote_threshold: 2
+    reflection_prompt: "Extract job applications submitted, recruiter conversations, interview outcomes, and follow-up actions needed."
+
+  - id: interview-prep
+    label: Interview Prep
+    promote_threshold: 2
+    reflection_prompt: "Extract system design patterns practiced, LeetCode topics covered, behavioral stories developed, and company-specific research."
+
+  - id: career-goals
+    label: Career Goals
+    promote_threshold: 1
+    reflection_prompt: "Extract stated goals, milestones achieved, skills to develop, and any changes to career direction."
+
+  - id: tech-stack
+    label: Tech Stack
+    promote_threshold: 3
+    reflection_prompt: "Extract tool choices with rationale, version decisions, dev environment changes, and deprecations."
+
+  - id: debugging
+    label: Debugging
+    promote_threshold: 2
+    reflection_prompt: "Extract: bug description, root cause, solution applied, and prevention strategy. Capture the exact error message if mentioned."
+
+  - id: snippets
+    label: Snippets
+    promote_threshold: 3
+    reflection_prompt: "Extract reusable code patterns with their usage context. Include language and framework tags."
+
+  - id: prompts
+    label: Prompts
+    promote_threshold: 2
+    reflection_prompt: "Extract system prompts, tool prompts, or prompt patterns that worked well. Include context on when and why to use them."
+
+  - id: agent-designs
+    label: Agent Designs
+    promote_threshold: 2
+    reflection_prompt: "Extract agent architectures tried, tool use patterns, failure modes encountered, and lessons learned."
+
+  - id: network
+    label: Network
+    promote_threshold: 1
+    reflection_prompt: "Extract people mentioned: name, context of meeting, their role, and any follow-up needed."
+
+  - id: relationships
+    label: Relationships
+    promote_threshold: 1
+    reflection_prompt: "Extract mentions of family or close friends: context, any important dates, and recurring themes."
+
+  - id: habits
+    label: Habits
+    promote_threshold: 2
+    reflection_prompt: "Extract habit streaks, triggers identified, pillar completions, and behavioral patterns noted."
+
+  - id: journal
+    label: Journal
+    promote_threshold: 1
+    reflection_prompt: "Extract notable wins, lessons learned, emotional tone of the day, and any decisions made."
+
+  - id: health
+    label: Health
+    promote_threshold: 2
+    reflection_prompt: "Extract sleep quality, workouts, nutrition notes, symptoms, and any medical context."
+
+  - id: finance
+    label: Finance
+    promote_threshold: 2
+    reflection_prompt: "Extract budget events, income changes, new expenses, subscriptions, and financial decisions."

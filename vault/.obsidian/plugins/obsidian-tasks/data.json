@@ -1,0 +1,28 @@
+{
+  "taskFormat": "tasksPluginEmoji",
+  "globalFilter": "#todo",
+  "globalQuery": "",
+  "removeGlobalFilter": false,
+  "setDoneDate": true,
+  "autoSuggestInEditor": true,
+  "autoSuggestMinMatch": 2,
+  "autoSuggestMaxItems": 20,
+  "provideAccessKeys": true,
+  "useFilenameAsScheduledDate": false,
+  "filenameAsDateFolders": [],
+  "recurrenceOnNextLine": false,
+  "statusSettings": {
+    "coreStatuses": [
+      { "symbol": " ", "name": "Todo", "nextStatusSymbol": "x", "availableAsCommand": false },
+      { "symbol": "x", "name": "Done", "nextStatusSymbol": " ", "availableAsCommand": false }
+    ],
+    "customStatuses": [
+      { "symbol": "/", "name": "In Progress", "nextStatusSymbol": "x", "availableAsCommand": true },
+      { "symbol": "-", "name": "Cancelled", "nextStatusSymbol": " ", "availableAsCommand": true }
+    ]
+  },
+  "maxTasksListLength": 200,
+  "headingLevel": 0,
+  "showUrgency": false,
+  "urgencyUserDefinedAttributes": []
+}
