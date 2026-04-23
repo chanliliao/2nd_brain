@@ -5,6 +5,7 @@ Subcommands:
   search "<query>" [--top-k N]   Search the vector index
   reindex [--vault PATH] [--db PATH]  Rebuild the index from the vault
   stats                          Show database statistics
+  rescore [--db PATH]            Recompute importance scores for all chunks
 """
 
 import sys
@@ -73,6 +74,13 @@ def cmd_stats(args: argparse.Namespace) -> None:
     print(f"DB size: {db_size_kb:.1f} KB")
 
 
+def cmd_rescore(args: argparse.Namespace) -> None:
+    from .score import rescore_all
+    db_path = Path(args.db) if args.db else _DB
+    count = rescore_all(db_path)
+    print(f"Rescored {count} chunks.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Memory RAG system CLI",
@@ -115,6 +123,18 @@ def main() -> None:
     # stats subcommand
     stats_parser = subparsers.add_parser("stats", help="Show database statistics")
     stats_parser.set_defaults(func=cmd_stats)
+
+    # rescore subcommand
+    rescore_parser = subparsers.add_parser(
+        "rescore", help="Recompute importance scores for all chunks"
+    )
+    rescore_parser.add_argument(
+        "--db",
+        default=None,
+        metavar="PATH",
+        help=f"Path to SQLite database (default: {_DB})",
+    )
+    rescore_parser.set_defaults(func=cmd_rescore)
 
     args = parser.parse_args()
     args.func(args)
