@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "command": "claude-mem session-start" },
+      { "command": "llmwiki sync --quiet" },
+      { "command": "python C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\session-start-context.py" },
+      { "command": "caveman-session-start" }
+    ],
+    "UserPromptSubmit": [
+      { "command": "claude-mem prompt-submit" }
+    ],
+    "PostToolUse": [
+      { "command": "claude-mem post-tool" }
+    ],
+    "PreToolUse": [
+      { "command": "graphify-pre-tool" }
+    ],
+    "PreCompact": [
+      { "command": "claude-mem pre-compact" },
+      { "command": "python C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\pre-compact-flush.py" }
+    ],
+    "SessionEnd": [
+      { "command": "claude-mem session-end" },
+      { "command": "python C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\session-end-flush.py" }
+    ],
+    "Stop": [
+      { "command": "claude-mem stop" }
+    ]
+  }
+}
