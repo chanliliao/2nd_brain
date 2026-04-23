@@ -81,6 +81,22 @@ def cmd_rescore(args: argparse.Namespace) -> None:
     print(f"Rescored {count} chunks.")
 
 
+def cmd_dedup(args: argparse.Namespace) -> None:
+    from .dedup import remove_duplicates
+    from .db import init_db
+    db_path = Path(args.db) if args.db else _DB
+    conn = init_db(db_path)
+    try:
+        dry_run = not args.execute
+        counts = remove_duplicates(conn, dry_run=dry_run)
+        mode = "DRY RUN" if dry_run else "EXECUTED"
+        print(f"[{mode}] {counts['exact']} exact, {counts['semantic']} semantic duplicates found.")
+        if dry_run and (counts["exact"] or counts["semantic"]):
+            print("Run with --execute to delete them.")
+    finally:
+        conn.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Memory RAG system CLI",
@@ -135,6 +151,30 @@ def main() -> None:
         help=f"Path to SQLite database (default: {_DB})",
     )
     rescore_parser.set_defaults(func=cmd_rescore)
+
+    # dedup subcommand
+    dedup_parser = subparsers.add_parser(
+        "dedup", help="Find and optionally remove duplicate chunks"
+    )
+    dedup_parser.add_argument(
+        "--db",
+        default=None,
+        metavar="PATH",
+        help=f"Path to SQLite database (default: {_DB})",
+    )
+    dedup_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.95,
+        metavar="FLOAT",
+        help="Cosine similarity threshold for semantic dedup (default: 0.95)",
+    )
+    dedup_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually delete duplicates (default: dry-run only)",
+    )
+    dedup_parser.set_defaults(func=cmd_dedup)
 
     args = parser.parse_args()
     args.func(args)
