@@ -44,6 +44,7 @@ def search(query: str, db_path: Path, top_k: int = 5) -> list[dict]:
             SELECT c.id, vec_distance_cosine(cv.embedding, ?) AS dist
             FROM chunk_vectors cv
             JOIN chunks c ON cv.chunk_id = c.id
+            WHERE c.superseded_by IS NULL
             ORDER BY dist ASC
             LIMIT 50
             """,
@@ -62,10 +63,12 @@ def search(query: str, db_path: Path, top_k: int = 5) -> list[dict]:
     try:
         fts_rows = conn.execute(
             """
-            SELECT chunk_id, rank
-            FROM chunks_fts
-            WHERE content MATCH ?
-            ORDER BY rank
+            SELECT cf.chunk_id, cf.rank
+            FROM chunks_fts cf
+            JOIN chunks c ON c.id = cf.chunk_id
+            WHERE cf.content MATCH ?
+              AND c.superseded_by IS NULL
+            ORDER BY cf.rank
             LIMIT 50
             """,
             (query,),
