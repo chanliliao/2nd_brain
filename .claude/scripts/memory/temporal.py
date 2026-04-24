@@ -3,6 +3,7 @@
 import re
 import calendar
 import datetime
+from datetime import timezone
 
 
 def parse_date_range(expr: str) -> tuple[float, float]:
@@ -23,7 +24,7 @@ def parse_date_range(expr: str) -> tuple[float, float]:
     All times in UTC.
     """
     expr = expr.strip().lower()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Handle "last N days" / "past N days"
     match = re.match(r'^(?:last|past)\s+(\d+)\s+days?$', expr)
@@ -147,6 +148,6 @@ if __name__ == "__main__":
     for expr in ["today", "yesterday", "this week", "last week", "this month", "last month",
                  "last 7 days", "past 3 days", "2026-04-01 to 2026-04-10", "2026-04-15", "unknown stuff"]:
         start, end = parse_date_range(expr)
-        start_s = datetime.datetime.utcfromtimestamp(start).isoformat() if start > 0 else "0"
-        end_s = datetime.datetime.utcfromtimestamp(end).isoformat() if end < float('inf') else "inf"
+        start_s = datetime.datetime.fromtimestamp(start, timezone.utc).replace(tzinfo=None).isoformat() if start > 0 else "0"
+        end_s = datetime.datetime.fromtimestamp(end, timezone.utc).replace(tzinfo=None).isoformat() if end < float('inf') else "inf"
         print(f"{expr!r:35} -> {start_s} to {end_s}")
