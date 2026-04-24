@@ -1,5 +1,8 @@
 .worktrees/
+.env
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
 .claude/data/memory.sqlite
 .claude/data/secrets/
