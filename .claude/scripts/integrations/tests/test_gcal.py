@@ -120,9 +120,10 @@ class TestUpcoming:
         self, mock_build, mock_creds_from_file, tmp_path
     ):
         """upcoming() passes timeMin=now and timeMax=now+hours to the API."""
-        # Set up mock credentials
+        # Set up mock credentials (include calendar.readonly scope)
         mock_creds = MagicMock()
         mock_creds.expired = False
+        mock_creds.scopes = ["https://www.googleapis.com/auth/calendar.readonly"]
         mock_creds_from_file.return_value = mock_creds
 
         # Set up mock service
@@ -185,9 +186,10 @@ class TestTodayEvents:
         self, mock_build, mock_creds_from_file, tmp_path
     ):
         """today_events() passes timeMin=start of today and timeMax=end of today."""
-        # Set up mock credentials
+        # Set up mock credentials (include calendar.readonly scope)
         mock_creds = MagicMock()
         mock_creds.expired = False
+        mock_creds.scopes = ["https://www.googleapis.com/auth/calendar.readonly"]
         mock_creds_from_file.return_value = mock_creds
 
         # Set up mock service
@@ -216,10 +218,11 @@ class TestTodayEvents:
         time_min = datetime.datetime.fromisoformat(time_min_str.rstrip("Z"))
         time_max = datetime.datetime.fromisoformat(time_max_str.rstrip("Z"))
 
-        # Convert UTC back to local for comparison
-        utc_offset = datetime.datetime.now(timezone.utc).replace(tzinfo=None) - datetime.datetime.now()
-        local_min = time_min - utc_offset
-        local_max = time_max - utc_offset
+        # Convert UTC back to local for comparison (DST-safe)
+        local_aware = datetime.datetime.now(datetime.timezone.utc).astimezone()
+        utc_delta = local_aware.utcoffset()
+        local_min = time_min + utc_delta
+        local_max = time_max + utc_delta
 
         # local_min should be midnight (00:00:00) today
         today = datetime.datetime.now().date()

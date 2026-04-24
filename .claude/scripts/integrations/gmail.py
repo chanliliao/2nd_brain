@@ -96,7 +96,8 @@ def _decode_body(msg: dict) -> str:
         if mime == "text/plain":
             data = part.get("body", {}).get("data", "")
             if data:
-                return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+                padded = data + "=" * (-len(data) % 4)
+                return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
         for sub in part.get("parts", []):
             result = _find_plain(sub)
             if result:

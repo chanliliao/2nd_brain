@@ -99,8 +99,16 @@ def _get_service(config: GCalConfig):
     # Refresh the token if expired and a refresh token is available.
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        # Persist the refreshed token.
         token_path.write_text(creds.to_json())
+
+    # Validate that calendar.readonly scope is present in the token.
+    cal_scope = "https://www.googleapis.com/auth/calendar.readonly"
+    if creds.scopes and cal_scope not in creds.scopes:
+        raise RuntimeError(
+            "Token is missing calendar.readonly scope. "
+            "Delete the token file and re-run 'python gmail.py auth' "
+            "to re-authenticate with all required scopes."
+        )
 
     return build("calendar", "v3", credentials=creds)
 
@@ -173,10 +181,11 @@ def today_events(config: GCalConfig) -> list[dict]:
     start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = now_local.replace(hour=23, minute=59, second=59, microsecond=0)
 
-    # Convert local times to UTC ISO-8601 strings.
-    utc_offset = datetime.datetime.now(timezone.utc).replace(tzinfo=None) - now_local
-    time_min = (start_of_day + utc_offset).isoformat() + "Z"
-    time_max = (end_of_day + utc_offset).isoformat() + "Z"
+    # Convert local times to UTC ISO-8601 strings (DST-safe via utcoffset()).
+    local_aware = datetime.datetime.now(datetime.timezone.utc).astimezone()
+    utc_delta = local_aware.utcoffset()
+    time_min = (start_of_day - utc_delta).isoformat() + "Z"
+    time_max = (end_of_day - utc_delta).isoformat() + "Z"
 
     result = (
         service.events()

@@ -6,7 +6,10 @@ Fetches open PRs (for review or authored) and assigned issues
 via the GitHub API using a Personal Access Token (PAT).
 
 Env var required:
-  GITHUB_TOKEN -- GitHub PAT with repo + read:user scopes
+  GITHUB_TOKEN -- GitHub PAT. Use a fine-grained token with read-only
+                 'contents' + 'metadata' permissions, or a classic token
+                 with 'public_repo' + 'read:user' (NOT the full 'repo' scope
+                 which grants write access to private repos).
   GITHUB_USERNAME -- optional; auto-detected from token if absent
 """
 
@@ -70,6 +73,8 @@ def list_prs_for_review(config: "GitHubConfig") -> list:
                 "created_at": item.created_at.isoformat(),
                 "role": "reviewer",
             }
+        if len(seen) >= 20:
+            break
 
     author_query = f"is:pr is:open author:{username} -is:draft"
     for item in g.search_issues(author_query):
@@ -84,8 +89,10 @@ def list_prs_for_review(config: "GitHubConfig") -> list:
                 "created_at": item.created_at.isoformat(),
                 "role": "author",
             }
+        if len(seen) >= 20:
+            break
 
-    return list(seen.values())[:20]
+    return list(seen.values())
 
 
 def list_issues_assigned(config: "GitHubConfig") -> list:
