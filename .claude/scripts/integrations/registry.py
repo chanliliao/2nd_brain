@@ -15,7 +15,15 @@ Pre-registered integrations (built-in):
 """
 
 import importlib
+import sys
+import types
+from pathlib import Path
 from typing import Optional, Dict, List
+
+# Setup sys.path for importable integrations modules
+_SCRIPTS_DIR = Path(__file__).parent.parent  # .claude/scripts/
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 
 # Registry: name -> module path
@@ -33,15 +41,20 @@ def register(name: str, module_path: str) -> None:
 
     Args:
       name: Human-readable integration name (e.g., 'gmail', 'github').
-      module_path: Python module path as string (e.g., '.claude.scripts.integrations.gmail').
+      module_path: Python module path as string (e.g., 'integrations.gmail').
 
-    Note:
-      Relative paths (starting with '.') are imported relative to the current package.
+    Raises:
+      ValueError: If an integration with this name is already registered.
     """
+    if name in _REGISTRY:
+        raise ValueError(
+            f"Integration '{name}' is already registered. "
+            f"Use a different name."
+        )
     _REGISTRY[name] = module_path
 
 
-def get(name: str) -> Optional[object]:
+def get(name: str) -> Optional[types.ModuleType]:
     """
     Import and return a registered integration module.
 
@@ -66,7 +79,7 @@ def get(name: str) -> Optional[object]:
     module_path = _REGISTRY[name]
     try:
         return importlib.import_module(module_path)
-    except (ImportError, ModuleNotFoundError):
+    except (ImportError, ModuleNotFoundError, TypeError):
         return None
 
 
@@ -98,10 +111,10 @@ def is_registered(name: str) -> bool:
 # ============================================================================
 
 # Gmail: Email integration
-register("gmail", ".claude.scripts.integrations.gmail")
+register("gmail", "integrations.gmail")
 
 # GitHub: Issues and pull requests integration
-register("github", ".claude.scripts.integrations.github")
+register("github", "integrations.github")
 
 # Google Calendar: Calendar and events integration (shares OAuth with Gmail)
-register("gcal", ".claude.scripts.integrations.gcal")
+register("gcal", "integrations.gcal")

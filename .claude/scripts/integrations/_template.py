@@ -285,19 +285,17 @@ def cli_dispatch(args: List[str]) -> None:
 # ============================================================================
 
 if __name__ == "__main__":
-    """
-    Entry point for CLI usage.
-
-    When this file is run directly, dispatch to the appropriate CLI handler
-    based on command-line arguments.
-
-    Usage:
-      python _template.py <command> [args...]
-
-    To test after renaming:
-      python gmail.py auth
-      python gmail.py list
-    """
+    # Entry point for CLI usage.
+    #
+    # When this file is run directly, dispatch to the appropriate CLI handler
+    # based on command-line arguments.
+    #
+    # Usage:
+    #   python _template.py <command> [args...]
+    #
+    # To test after renaming:
+    #   python gmail.py auth
+    #   python gmail.py list
     try:
         cli_dispatch(sys.argv[1:])
     except NotImplementedError as e:
