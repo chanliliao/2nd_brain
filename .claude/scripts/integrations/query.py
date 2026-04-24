@@ -12,7 +12,7 @@ Usage:
   python query.py help
 """
 import sys
-from integrations.registry import get, list_registered
+from integrations.registry import get, is_registered, list_registered
 
 
 def main(args: list[str]) -> None:
@@ -32,6 +32,7 @@ def main(args: list[str]) -> None:
         return
 
     command = args[0]
+    debug = "--debug" in args
 
     if command == "help":
         _print_usage()
@@ -40,18 +41,28 @@ def main(args: list[str]) -> None:
     # Map "calendar" CLI name to "gcal" registry entry
     registry_name = "gcal" if command == "calendar" else command
 
-    # Get the integration module from registry
-    integration = get(registry_name)
-    if integration is None:
-        print(f"Error: Unknown integration '{command}'")
+    if not is_registered(registry_name):
+        print(f"Error: Unknown integration '{command}'", file=sys.stderr)
         print()
         _print_usage()
         sys.exit(1)
 
-    # Dispatch to the integration's cli_dispatch function with remaining args
+    integration = get(registry_name)
+    if integration is None:
+        print(
+            f"Error: Integration '{command}' is registered but failed to load. "
+            "Check that its dependencies are installed.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     try:
         integration.cli_dispatch(args[1:])
+    except SystemExit:
+        raise
     except Exception as e:
+        if debug:
+            raise
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 

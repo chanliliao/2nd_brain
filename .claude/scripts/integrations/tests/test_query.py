@@ -1,7 +1,7 @@
 """Tests for query.py — unified CLI dispatcher."""
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,7 +37,24 @@ def test_unknown_integration_exits_1(capsys):
         main(["unknown"])
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
-    assert "Error: Unknown integration 'unknown'" in captured.out
+    assert "Error: Unknown integration 'unknown'" in captured.err
+
+
+def test_dispatch_exception_prints_error_and_exits_1(capsys):
+    """Verify that an exception from cli_dispatch is caught and exits with code 1."""
+    with patch("integrations.gmail.cli_dispatch", side_effect=RuntimeError("auth failed")):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["gmail", "unread"])
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "auth failed" in captured.err
+
+
+def test_debug_flag_reraises_exception():
+    """Verify that --debug causes exceptions to propagate instead of exit 1."""
+    with patch("integrations.gmail.cli_dispatch", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError, match="boom"):
+            main(["gmail", "--debug", "unread"])
 
 
 def test_no_args_prints_usage(capsys):
