@@ -6,3 +6,5 @@ __pycache__/
 .pytest_cache/
 .claude/data/memory.sqlite
 .claude/data/secrets/
+.claude/data/logs/
+.claude/data/state/
