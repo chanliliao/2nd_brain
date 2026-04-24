@@ -5,6 +5,7 @@ All tests mock the Calendar API service — no real API calls are made.
 """
 
 import datetime
+from datetime import timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 import pytest
@@ -139,9 +140,9 @@ class TestUpcoming:
         hours = 24
 
         # Record the time just before calling upcoming()
-        before = datetime.datetime.utcnow()
+        before = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
         upcoming(config, hours=hours)
-        after = datetime.datetime.utcnow()
+        after = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
 
         # Verify the API was called
         assert mock_events_resource.list.called
@@ -216,7 +217,7 @@ class TestTodayEvents:
         time_max = datetime.datetime.fromisoformat(time_max_str.rstrip("Z"))
 
         # Convert UTC back to local for comparison
-        utc_offset = datetime.datetime.utcnow() - datetime.datetime.now()
+        utc_offset = datetime.datetime.now(timezone.utc).replace(tzinfo=None) - datetime.datetime.now()
         local_min = time_min - utc_offset
         local_max = time_max - utc_offset
 
