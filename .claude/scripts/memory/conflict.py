@@ -10,8 +10,6 @@ import argparse
 import sqlite3
 from pathlib import Path
 
-import anthropic
-
 from .db import _DEFAULT_DB_PATH, init_db
 
 
@@ -77,7 +75,10 @@ def check_conflicts(new_chunk_id: str, conn: sqlite3.Connection) -> list[dict]:
     # ------------------------------------------------------------------ #
     # 4 & 5. Call Haiku to check contradiction; update DB if conflict      #
     # ------------------------------------------------------------------ #
-    client = anthropic.Anthropic()
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from claude_cli import call_claude  # type: ignore
+
     conflicts: list[dict] = []
 
     for old_chunk_id, _sim in candidates:
@@ -89,22 +90,12 @@ def check_conflicts(new_chunk_id: str, conn: sqlite3.Connection) -> list[dict]:
             continue
         old_content = old_row[0]
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=100,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        "Do these two facts contradict each other? "
-                        "Answer YES or NO, then one sentence explaining why.\n\n"
-                        f"Fact A: {old_content}\n\n"
-                        f"Fact B: {new_content}"
-                    ),
-                }
-            ],
+        prompt = (
+            "Do these two facts contradict each other? "
+            "Answer YES or NO, then one sentence explaining why.\n\n"
+            f"Fact A: {old_content}\n\nFact B: {new_content}"
         )
-        answer = response.content[0].text.strip()
+        answer = call_claude(prompt, model="haiku")
         is_contradiction = answer.upper().startswith("YES")
         reason = answer  # keep full response
 

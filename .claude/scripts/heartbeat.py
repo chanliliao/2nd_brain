@@ -168,12 +168,6 @@ def _analyze(
     habits: dict[str, bool],
     logger: logging.Logger,
 ) -> dict:
-    try:
-        import anthropic
-    except ImportError:
-        logger.warning("anthropic package not installed — skipping LLM analysis")
-        return _fallback_analysis(gmail, github, diff)
-
     context = {
         "gmail": {
             "unread_count": len([t for t in gmail if "error" not in t]),
@@ -198,14 +192,9 @@ def _analyze(
     }
 
     try:
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=512,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": json.dumps(context)}],
-        )
-        raw = response.content[0].text.strip()
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+        from claude_cli import call_claude  # type: ignore
+        raw = call_claude(json.dumps(context), system=_SYSTEM_PROMPT, model="haiku")
         raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
         raw = re.sub(r"\s*```$", "", raw)
         return json.loads(raw)

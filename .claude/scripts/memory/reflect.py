@@ -63,9 +63,12 @@ def _load_category_ids(vault_root: Path) -> list[str]:
 # Step 2 — Extract facts (Haiku)                                               #
 # --------------------------------------------------------------------------- #
 
-def _extract_facts(log_content: str, client) -> dict:
+def _extract_facts(log_content: str) -> dict:
     """Use Haiku to extract facts, mistakes, and open problems from daily log.
     Returns {facts: [...], mistakes: [...], open_problems: [...]}."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from claude_cli import call_claude  # type: ignore
+
     system = "You are a memory extraction assistant for a personal second brain."
     user = (
         "Extract information from this daily log into three categories.\n"
@@ -76,14 +79,7 @@ def _extract_facts(log_content: str, client) -> dict:
         "No other text.\n\nDaily log:\n" + log_content
     )
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-
-    raw = response.content[0].text.strip()
+    raw = call_claude(user, system=system, model="haiku")
     raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
     raw = raw.strip()
@@ -144,10 +140,13 @@ def _is_duplicate(fact: str, conn) -> bool:
 # Step 3 — Categorize facts (Sonnet)                                           #
 # --------------------------------------------------------------------------- #
 
-def _categorize_facts(facts: list[str], category_ids: list[str], client) -> list[dict]:
+def _categorize_facts(facts: list[str], category_ids: list[str]) -> list[dict]:
     """Use Sonnet to assign each fact a category. Returns list of {fact, category}."""
     if not facts:
         return []
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from claude_cli import call_claude  # type: ignore
 
     categories_list = ", ".join(category_ids)
     system = "You are organizing personal memory into categories."
@@ -157,14 +156,7 @@ def _categorize_facts(facts: list[str], category_ids: list[str], client) -> list
         f"Facts:\n{json.dumps(facts)}"
     )
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-
-    raw = response.content[0].text.strip()
+    raw = call_claude(user, system=system, model="sonnet")
 
     # Strip markdown code fences
     raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
@@ -296,8 +288,6 @@ def run_reflection(
     Returns:
         {facts_extracted: N, facts_categorized: M, conflicts_found: C, facts_written: K}
     """
-    import anthropic
-
     # Support both `python reflect.py` (direct) and `python -m memory.reflect` (module)
     try:
         from .db import init_db
@@ -354,16 +344,15 @@ def run_reflection(
     # ---------------------------------------------------------------------- #
     # Step 2 — Extract facts/mistakes/open_problems (Haiku)                  #
     # ---------------------------------------------------------------------- #
-    client = anthropic.Anthropic()
     category_ids = _load_category_ids(vault_root)
 
-    buckets = _extract_facts(log_content, client)
+    buckets = _extract_facts(log_content)
     facts_extracted = len(buckets["facts"]) + len(buckets["mistakes"]) + len(buckets["open_problems"])
 
     # ---------------------------------------------------------------------- #
     # Step 3 — Categorize facts (Sonnet)                                      #
     # ---------------------------------------------------------------------- #
-    categorized = _categorize_facts(buckets["facts"], category_ids, client)
+    categorized = _categorize_facts(buckets["facts"], category_ids)
     facts_categorized = len(categorized)
 
     # ---------------------------------------------------------------------- #
