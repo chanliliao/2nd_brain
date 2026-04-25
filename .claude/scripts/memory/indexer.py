@@ -103,3 +103,14 @@ def index_vault(vault_path: Path, db_path: Path) -> None:
         relative = md_file.relative_to(vault_path)
         print(f"Indexed: {relative} ({n} chunks upserted)", file=sys.stderr)
         conn.commit()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    _root = Path(__file__).parent.parent.parent.parent  # project root
+    parser = argparse.ArgumentParser(description="Index vault markdown files into the memory DB")
+    parser.add_argument("--vault", type=Path, default=_root / "vault")
+    parser.add_argument("--db", type=Path, default=_root / ".claude" / "data" / "memory.sqlite")
+    args = parser.parse_args()
+    index_vault(args.vault, args.db)
