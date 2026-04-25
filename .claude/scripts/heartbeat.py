@@ -2,7 +2,7 @@
 Heartbeat orchestrator for Henry's Second Brain.
 
 Runs every 30 min during active hours (8AM-10PM Eastern).
-Gathers data from Gmail, GitHub, and Google Calendar; diffs against the last
+Gathers data from GitHub and Google Calendar; diffs against the last
 state snapshot; calls Haiku for a structured analysis; auto-detects habit
 completions; sends a Windows Toast notification on deltas; and writes an
 action summary to today's daily log + HEARTBEAT.md.
@@ -89,15 +89,6 @@ def _add_scripts_to_path() -> None:
         sys.path.insert(0, str(scripts_parent))
 
 
-def _gather_gmail() -> list[dict]:
-    _add_scripts_to_path()
-    try:
-        from integrations.gmail import GmailConfig, list_unread
-        return list_unread(GmailConfig.from_env())
-    except Exception as exc:
-        return [{"error": str(exc)}]
-
-
 def _gather_github() -> list[dict]:
     _add_scripts_to_path()
     try:
@@ -145,7 +136,6 @@ Henry is a software engineer job-hunting in NYC who studies AI engineering.
 Analyze the provided JSON snapshot and produce a JSON object with exactly these keys:
 - "notification_title": string, ≤60 chars. Set to "" if nothing notable changed.
 - "notification_body": string, ≤200 chars. One or two sentences.
-- "draft_emails": list of Gmail thread IDs (strings) that need a reply draft.
 - "draft_prs": list of "{repo}#{number}" strings that need a review draft.
 - "habit_notes": string. Brief (≤80 chars) observation about habit progress. "" if nothing to note.
 - "summary": string. 2-3 sentences summarising what changed this cycle.
@@ -153,14 +143,12 @@ Analyze the provided JSON snapshot and produce a JSON object with exactly these 
 Rules:
 - Prioritise delta information from the "diff" key — only surface new/changed items.
 - If diff is empty or {"first_run": true} with no notable integrations data, set notification_title to "".
-- draft_emails: only include thread IDs where needs_reply is true AND they appear in diff.gmail.newly_needs_reply.
 - draft_prs: only include new PRs from diff.github.new_prs.
 - Output ONLY valid JSON — no markdown fences, no extra text.
 """
 
 
 def _analyze(
-    gmail: list[dict],
     github: list[dict],
     calendar: list[dict],
     codeburn: str,
@@ -169,11 +157,6 @@ def _analyze(
     logger: logging.Logger,
 ) -> dict:
     context = {
-        "gmail": {
-            "unread_count": len([t for t in gmail if "error" not in t]),
-            "needs_reply_ids": [t["id"] for t in gmail if t.get("needs_reply") and "error" not in t],
-            "subjects_preview": [t.get("subject", "?") for t in gmail[:5] if "error" not in t],
-        },
         "github": {
             "prs_count": len([p for p in github if "error" not in p]),
             "prs_preview": [
@@ -200,16 +183,14 @@ def _analyze(
         return json.loads(raw)
     except Exception as exc:
         logger.warning(f"LLM analysis failed: {exc}")
-        return _fallback_analysis(gmail, github, diff)
+        return _fallback_analysis(github, diff)
 
 
-def _fallback_analysis(gmail: list, github: list, diff: dict) -> dict:
-    g_count = len([t for t in gmail if "error" not in t])
+def _fallback_analysis(github: list, diff: dict) -> dict:
     gh_count = len([p for p in github if "error" not in p])
     return {
         "notification_title": "Heartbeat" if diff else "",
-        "notification_body": f"Gmail: {g_count} unread · GitHub: {gh_count} PRs",
-        "draft_emails": [],
+        "notification_body": f"GitHub: {gh_count} PRs",
         "draft_prs": [],
         "habit_notes": "",
         "summary": "Analysis unavailable — check logs.",
@@ -222,24 +203,19 @@ def _fallback_analysis(gmail: list, github: list, diff: dict) -> dict:
 
 def _write_draft_action_note(
     vault_root: Path,
-    draft_emails: list[str],
     draft_prs: list[str],
     logger: logging.Logger,
     pending: int = 0,
 ) -> None:
-    if not draft_emails and not draft_prs and not pending:
+    if not draft_prs and not pending:
         return
 
     today_str = date.today().strftime("%Y-%m-%d")
     daily_path = vault_root / "daily" / f"{today_str}.md"
 
     lines = ["\n## Heartbeat Actions\n"]
-    if draft_emails:
-        lines.append("**Emails needing reply drafts:**")
-        for tid in draft_emails:
-            lines.append(f"- Gmail thread `{tid}` — run `/draft-email` to compose a reply")
     if draft_prs:
-        lines.append("\n**PRs needing review drafts:**")
+        lines.append("**PRs needing review drafts:**")
         for pr_key in draft_prs:
             lines.append(f"- {pr_key} — run `/code-review-sweep` to draft a review")
     if pending > 0:
@@ -267,7 +243,6 @@ def _write_heartbeat_md(
     run_dt: datetime,
     analysis: dict,
     habits: dict[str, bool],
-    gmail_count: int,
     github_count: int,
     cal_count: int,
 ) -> None:
@@ -287,7 +262,6 @@ def _write_heartbeat_md(
         f"# Heartbeat — {dt_str}",
         "",
         "## Integration Snapshot",
-        f"- Unread Gmail: {gmail_count}",
         f"- GitHub PRs needing attention: {github_count}",
         f"- Calendar events (next 2h): {cal_count}",
         "",
@@ -352,9 +326,6 @@ def run_heartbeat(
     logger.info("=== Heartbeat start ===")
 
     # Gather integration data
-    logger.info("Gathering Gmail…")
-    gmail = _gather_gmail()
-
     logger.info("Gathering GitHub…")
     github = _gather_github()
 
@@ -366,7 +337,7 @@ def run_heartbeat(
 
     # State diff — skip LLM + notification if nothing changed (unless --force)
     old_state = load_state(state_path)
-    new_snapshot = build_snapshot(gmail, github, calendar)
+    new_snapshot = build_snapshot(github, calendar)
     diff = diff_snapshot(old_state, new_snapshot)
 
     if not diff and not force:
@@ -380,9 +351,8 @@ def run_heartbeat(
     logger.info(f"Habits: {habits}")
 
     # LLM analysis
-    analysis = _analyze(gmail, github, calendar, codeburn, diff, habits, logger)
+    analysis = _analyze(github, calendar, codeburn, diff, habits, logger)
     logger.info(f"Analysis: title='{analysis.get('notification_title', '')}' "
-                f"draft_emails={analysis.get('draft_emails', [])} "
                 f"draft_prs={analysis.get('draft_prs', [])}")
 
     # Send Windows Toast if something notable
@@ -397,19 +367,17 @@ def run_heartbeat(
     pending_proposals = _count_pending_proposals(vault_root)
     _write_draft_action_note(
         vault_root,
-        analysis.get("draft_emails", []),
         analysis.get("draft_prs", []),
         logger,
         pending=pending_proposals,
     )
 
     # Update HEARTBEAT.md
-    gmail_ok = [t for t in gmail if "error" not in t]
     github_ok = [p for p in github if "error" not in p]
     cal_ok = [e for e in calendar if "error" not in e]
     _write_heartbeat_md(
         vault_root, run_dt, analysis, habits,
-        len(gmail_ok), len(github_ok), len(cal_ok),
+        len(github_ok), len(cal_ok),
     )
 
     # Persist new state

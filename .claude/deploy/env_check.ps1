@@ -82,7 +82,6 @@ if (Test-Path $venvPython) {
 Write-Host ""
 Write-Host "-- Python packages --"
 $requiredPackages = @(
-    'anthropic'
     'fastembed'
     'google-api-python-client'
     'PyGithub'
@@ -110,10 +109,7 @@ Write-Host ""
 Write-Host "-- Environment file --"
 $envFile = Join-Path $projectRoot '.env'
 $requiredKeys = @(
-    'GMAIL_CLIENT_ID'
-    'GMAIL_CLIENT_SECRET'
     'GITHUB_TOKEN'
-    'ANTHROPIC_API_KEY'
 )
 
 if (Test-Path $envFile) {
@@ -177,7 +173,6 @@ if (Test-Path $soulFile) {
 Write-Host ""
 Write-Host "-- OAuth tokens (warnings only) --"
 $oauthFiles = @{
-    'Gmail token'    = Join-Path $projectRoot '.claude\data\secrets\gmail_token.json'
     'GCal token'     = Join-Path $projectRoot '.claude\data\secrets\gcal_token.json'
 }
 

@@ -1,17 +1,9 @@
-﻿"""
+"""
 Google Calendar Integration
 ============================
 
 Fetches upcoming and today's calendar events from Google Calendar via the
-Calendar API v3. Shares an OAuth token with the Gmail integration - both use
-the same token file at data/secrets/gmail_token.json.
-
-IMPORTANT - Shared OAuth scopes:
-  The SCOPES list below includes calendar.readonly in addition to the two Gmail
-  scopes. If the user authenticated via gmail.py before calendar.readonly was
-  added to those scopes, the stored token will be missing the calendar scope
-  and every Calendar API call will return a 403. In that case delete the token
-  file and re-run the Gmail auth flow so all three scopes are granted together.
+Calendar API v3.
 
 Usage (CLI):
   python gcal.py upcoming            # next 24 hours (default)
@@ -35,11 +27,9 @@ from googleapiclient.discovery import build
 # Constants
 # ---------------------------------------------------------------------------
 
-TOKEN_PATH = Path(__file__).parent.parent.parent / "data" / "secrets" / "gmail_token.json"
+TOKEN_PATH = Path(__file__).parent.parent.parent / "data" / "secrets" / "gcal_token.json"
 
 SCOPES = [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/calendar.readonly",
 ]
 
@@ -58,19 +48,18 @@ class GCalConfig:
     def from_env(cls) -> "GCalConfig":
         """Load config from environment variables.
 
-        Reads GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET - intentionally the same
-        variables as the Gmail integration because both share one OAuth app.
+        Reads GCAL_CLIENT_ID and GCAL_CLIENT_SECRET.
 
         Raises:
             ValueError: If either required variable is missing.
         """
         load_dotenv()
-        client_id = os.getenv("GMAIL_CLIENT_ID")
-        client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+        client_id = os.getenv("GCAL_CLIENT_ID")
+        client_secret = os.getenv("GCAL_CLIENT_SECRET")
         if not client_id:
-            raise ValueError("GMAIL_CLIENT_ID environment variable is required")
+            raise ValueError("GCAL_CLIENT_ID environment variable is required")
         if not client_secret:
-            raise ValueError("GMAIL_CLIENT_SECRET environment variable is required")
+            raise ValueError("GCAL_CLIENT_SECRET environment variable is required")
         return cls(client_id=client_id, client_secret=client_secret)
 
 
@@ -81,33 +70,26 @@ class GCalConfig:
 def _get_service(config: GCalConfig):
     """Build and return an authenticated Calendar API v3 service.
 
-    Reuses the Gmail OAuth token file.  The token must have been obtained with
-    a scope list that includes calendar.readonly (see module docstring).
-
     Raises:
-        RuntimeError: If the token file is missing (user must run gmail auth
-                      first so the shared token is created).
+        RuntimeError: If the token file is missing (run gcal auth first).
     """
     token_path = config.token_path
     if not token_path.exists():
         raise RuntimeError(
-            "Run gmail auth first - Calendar shares the Gmail OAuth token"
+            "GCal token not found — run the OAuth flow to generate: " + str(token_path)
         )
 
     creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
 
-    # Refresh the token if expired and a refresh token is available.
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
         token_path.write_text(creds.to_json())
 
-    # Validate that calendar.readonly scope is present in the token.
     cal_scope = "https://www.googleapis.com/auth/calendar.readonly"
     if creds.scopes and cal_scope not in creds.scopes:
         raise RuntimeError(
             "Token is missing calendar.readonly scope. "
-            "Delete the token file and re-run 'python gmail.py auth' "
-            "to re-authenticate with all required scopes."
+            "Delete the token file and re-run the GCal auth flow."
         )
 
     return build("calendar", "v3", credentials=creds)
@@ -118,7 +100,6 @@ def _event_to_dict(event: dict) -> dict:
     start_raw = event.get("start", {})
     end_raw = event.get("end", {})
 
-    # All-day events use 'date'; timed events use 'dateTime'.
     start = start_raw.get("dateTime", start_raw.get("date", ""))
     end = end_raw.get("dateTime", end_raw.get("date", ""))
 
@@ -137,16 +118,7 @@ def _event_to_dict(event: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def upcoming(config: GCalConfig, hours: int = 24) -> list[dict]:
-    """Return events in the next *hours* hours (default 24).
-
-    Args:
-        config: Authenticated GCalConfig instance.
-        hours:  Number of hours to look ahead.
-
-    Returns:
-        List of event dicts with keys: id, summary, start, end, location,
-        description.
-    """
+    """Return events in the next *hours* hours (default 24)."""
     service = _get_service(config)
 
     now = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
@@ -169,19 +141,13 @@ def upcoming(config: GCalConfig, hours: int = 24) -> list[dict]:
 
 
 def today_events(config: GCalConfig) -> list[dict]:
-    """Return all events for today (local midnight to local end-of-day).
-
-    Returns:
-        List of event dicts with keys: id, summary, start, end, location,
-        description.
-    """
+    """Return all events for today (local midnight to local end-of-day)."""
     service = _get_service(config)
 
     now_local = datetime.datetime.now()
     start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = now_local.replace(hour=23, minute=59, second=59, microsecond=0)
 
-    # Convert local times to UTC ISO-8601 strings (DST-safe via utcoffset()).
     local_aware = datetime.datetime.now(datetime.timezone.utc).astimezone()
     utc_delta = local_aware.utcoffset()
     time_min = (start_of_day - utc_delta).isoformat() + "Z"
@@ -203,17 +169,7 @@ def today_events(config: GCalConfig) -> list[dict]:
 
 
 def format_context(events: list[dict]) -> str:
-    """Return a plain-text summary of *events* for LLM context injection.
-
-    Format:
-
-        CALENDAR (3 events):
-        - 2026-04-23T09:00:00 - Standup [Room 3B]
-        - 2026-04-23T14:00:00 - 1:1 with Manager
-        - 2026-04-23T17:00:00 - Team retrospective [Zoom]
-
-    The location bracket is omitted when the location field is empty.
-    """
+    """Return a plain-text summary of *events* for LLM context injection."""
     n = len(events)
     lines = [f"CALENDAR ({n} events):"]
     for event in events:
@@ -246,7 +202,6 @@ def cli_dispatch(args: list[str]) -> None:
 
     if command == "upcoming":
         hours = 24
-        # Parse optional --hours N
         remaining = args[1:]
         i = 0
         while i < len(remaining):

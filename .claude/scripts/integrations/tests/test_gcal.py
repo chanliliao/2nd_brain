@@ -32,7 +32,7 @@ from integrations.gcal import (
 
 def _make_config(tmp_path: Path) -> GCalConfig:
     """Return a GCalConfig pointing at a fake token file."""
-    token_file = tmp_path / "gmail_token.json"
+    token_file = tmp_path / "gcal_token.json"
     # Write a minimal token so the file exists (content is mocked away).
     token_file.write_text('{"token": "fake"}')
     return GCalConfig(

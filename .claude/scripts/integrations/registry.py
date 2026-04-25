@@ -9,7 +9,6 @@ allowing dynamic import and instantiation of integrations without hard-coding
 them into the application.
 
 Pre-registered integrations (built-in):
-  - gmail: Gmail/Google Workspace email integration
   - github: GitHub issues and PRs integration
   - gcal: Google Calendar events integration
 """
@@ -40,8 +39,8 @@ def register(name: str, module_path: str) -> None:
     Register an integration in the registry.
 
     Args:
-      name: Human-readable integration name (e.g., 'gmail', 'github').
-      module_path: Python module path as string (e.g., 'integrations.gmail').
+      name: Human-readable integration name (e.g., 'github', 'gcal').
+      module_path: Python module path as string (e.g., 'integrations.github').
 
     Raises:
       ValueError: If an integration with this name is already registered.
@@ -62,16 +61,10 @@ def get(name: str) -> Optional[types.ModuleType]:
     If the module cannot be found or import fails, returns None gracefully.
 
     Args:
-      name: Integration name (e.g., 'gmail', 'github').
+      name: Integration name (e.g., 'github', 'gcal').
 
     Returns:
       The imported module object, or None if not found or import failed.
-
-    Example:
-      gmail_module = get('gmail')
-      if gmail_module:
-          config = gmail_module.IntegrationConfig.from_env()
-          items = gmail_module.list_items(config)
     """
     if name not in _REGISTRY:
         return None
@@ -110,11 +103,8 @@ def is_registered(name: str) -> bool:
 # PRE-REGISTER BUILT-IN INTEGRATIONS
 # ============================================================================
 
-# Gmail: Email integration
-register("gmail", "integrations.gmail")
-
 # GitHub: Issues and pull requests integration
 register("github", "integrations.github")
 
-# Google Calendar: Calendar and events integration (shares OAuth with Gmail)
+# Google Calendar: Calendar and events integration
 register("gcal", "integrations.gcal")

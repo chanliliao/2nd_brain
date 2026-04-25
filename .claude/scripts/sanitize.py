@@ -30,15 +30,6 @@ def sanitize_text(text: str) -> str:
     return text
 
 
-def sanitize_gmail_thread(thread: dict) -> dict:
-    """Return a shallow copy with subject, snippet, body sanitized."""
-    copy = dict(thread)
-    for field in ("subject", "snippet", "body"):
-        if field in copy and isinstance(copy[field], str):
-            copy[field] = sanitize_text(copy[field])
-    return copy
-
-
 def sanitize_github_pr(pr: dict) -> dict:
     """Return a shallow copy with title, body sanitized."""
     copy = dict(pr)

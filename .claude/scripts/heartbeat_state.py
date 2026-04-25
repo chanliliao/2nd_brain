@@ -14,18 +14,12 @@ STATE_PATH = _PROJECT_ROOT_FALLBACK / "data" / "state" / "heartbeat-state.json"
 
 
 def build_snapshot(
-    gmail_threads: list[dict],
     github_prs: list[dict],
     calendar_events: list[dict],
 ) -> dict:
     """Return a JSON-serialisable snapshot of current integration state."""
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "gmail": {
-            t["id"]: t.get("needs_reply", False)
-            for t in gmail_threads
-            if "id" in t
-        },
         "github": {
             f"{pr['repo']}#{pr['number']}": pr.get("title", "")
             for pr in github_prs
@@ -65,21 +59,6 @@ def diff_snapshot(old: dict, new: dict) -> dict:
         return {"first_run": True}
 
     changes: dict = {}
-
-    # Gmail: new thread IDs or threads that flipped to needs_reply=True
-    old_gmail: dict = old.get("gmail", {})
-    new_gmail: dict = new.get("gmail", {})
-    new_thread_ids = [tid for tid in new_gmail if tid not in old_gmail]
-    newly_needs_reply = [
-        tid
-        for tid, needs in new_gmail.items()
-        if needs and not old_gmail.get(tid)
-    ]
-    if new_thread_ids or newly_needs_reply:
-        changes["gmail"] = {
-            "new_threads": new_thread_ids,
-            "newly_needs_reply": newly_needs_reply,
-        }
 
     # GitHub: new PR keys
     old_prs: dict = old.get("github", {})
