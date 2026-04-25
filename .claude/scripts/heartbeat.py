@@ -314,7 +314,7 @@ def run_heartbeat(
     run_dt = datetime.now(timezone.utc)
 
     if db_path is None:
-        db_path = _PROJECT_ROOT / "data" / "memory.sqlite"
+        db_path = _PROJECT_ROOT / ".claude" / "data" / "memory.sqlite"
 
     # Import sibling modules (same scripts/ directory)
     if str(_SCRIPTS_DIR) not in sys.path:

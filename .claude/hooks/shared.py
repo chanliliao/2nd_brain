@@ -4,10 +4,10 @@ import re
 import sys
 from pathlib import Path
 
-try:
-    import anthropic as _anthropic
-except ImportError:
-    _anthropic = None
+# Add scripts/ dir so we can import claude_cli
+_SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 
 def get_project_root() -> Path:
@@ -58,24 +58,13 @@ def truncate_to_tokens(text: str, max_chars: int = 8000) -> str:
 
 
 def extract_facts_with_haiku(text: str, extraction_prompt: str) -> str:
-    if _anthropic is None:
-        print("Warning: anthropic package is not installed; skipping fact extraction.", file=sys.stderr)
-        return ""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        print("Warning: ANTHROPIC_API_KEY is not set; skipping fact extraction.", file=sys.stderr)
-        return ""
     try:
-        client = _anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+        from claude_cli import call_claude  # type: ignore
+        return call_claude(
+            f"{extraction_prompt}\n\n---\n{text}",
             system="You are a precise fact extractor. Extract only concrete facts, decisions, and insights. Be concise.",
-            messages=[
-                {"role": "user", "content": f"{extraction_prompt}\n\n---\n{text}"},
-            ],
+            model="haiku",
         )
-        return message.content[0].text
     except Exception as exc:
         print(f"Warning: fact extraction failed: {exc}", file=sys.stderr)
         return ""

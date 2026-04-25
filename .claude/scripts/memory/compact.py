@@ -1,8 +1,8 @@
 """
-compact.py — Weekly and monthly rollup summarization using Anthropic API.
+compact.py — Weekly and monthly rollup summarization using claude CLI.
 
 Produces concise summaries of daily logs (weekly) and weekly summaries (monthly)
-using claude-haiku-4-5-20251001 for cost efficiency.
+using Haiku (via claude CLI) for cost efficiency.
 
 CLI usage:
   python compact.py weekly [--vault PATH] [--date YYYY-MM-DD]
@@ -20,11 +20,11 @@ from pathlib import Path
 from datetime import date, timedelta, datetime
 
 # Allow running as a script directly (not only as a module)
-if __name__ == "__main__" and __package__ is None:
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    __package__ = "scripts.memory"
+_SCRIPTS_DIR = Path(__file__).parent.parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
-import anthropic
+from claude_cli import call_claude  # type: ignore  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -120,9 +120,6 @@ def weekly_rollup(vault_root: Path, target_date: date | None = None) -> Path | N
         print(f"No daily logs found for week {week_label}", file=sys.stderr)
         return None
 
-    # Call Haiku to summarize
-    client = anthropic.Anthropic()
-
     system_prompt = "You are a personal knowledge assistant summarizing a week of activity logs."
     user_prompt = f"""Summarize this week's daily logs into bullet points organized by category:
 - Coding & Projects
@@ -137,15 +134,9 @@ Daily logs:
 Keep each bullet concise. Output markdown."""
 
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}]
-        )
-        summary = response.content[0].text
+        summary = call_claude(user_prompt, system=system_prompt, model="haiku")
     except Exception as e:
-        print(f"Error calling Anthropic API: {e}", file=sys.stderr)
+        print(f"Error calling claude CLI: {e}", file=sys.stderr)
         return None
 
     # Write to vault/weekly/YYYY-Www.md
@@ -220,9 +211,6 @@ def monthly_rollup(vault_root: Path, target_month: date | None = None) -> Path |
         print(f"No weekly summaries found for month {month_label}", file=sys.stderr)
         return None
 
-    # Call Haiku to synthesize
-    client = anthropic.Anthropic()
-
     system_prompt = "You are a personal knowledge assistant synthesizing monthly retrospectives."
     user_prompt = f"""Synthesize these weekly summaries into a monthly retrospective with:
 ## Wins
@@ -236,15 +224,9 @@ Weekly summaries:
 Output markdown."""
 
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}]
-        )
-        summary = response.content[0].text
+        summary = call_claude(user_prompt, system=system_prompt, model="haiku")
     except Exception as e:
-        print(f"Error calling Anthropic API: {e}", file=sys.stderr)
+        print(f"Error calling claude CLI: {e}", file=sys.stderr)
         return None
 
     # Write to vault/monthly/YYYY-MM.md
