@@ -81,6 +81,15 @@ def prune(conn: sqlite3.Connection, dry_run: bool = True) -> int:
     return count
 
 
+def apply_chunks(ids: list[str], conn: sqlite3.Connection) -> int:
+    """Delete indexed data for given chunk IDs. Called after Henry approves a prune proposal."""
+    for chunk_id in ids:
+        conn.execute("DELETE FROM chunk_vectors WHERE chunk_id = ?", (chunk_id,))
+        conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (chunk_id,))
+    conn.commit()
+    return len(ids)
+
+
 def archive_old_drafts(vault_root: Path, dry_run: bool = True) -> int:
     """Move sent drafts older than 30 days to archive.
 
@@ -171,6 +180,11 @@ def main() -> None:
         action="store_true",
         help="Actually prune and archive (default: dry-run only)",
     )
+    parser.add_argument(
+        "--propose",
+        action="store_true",
+        help="Write a prune-set proposal instead of pruning (requires approval)",
+    )
 
     args = parser.parse_args()
 
@@ -184,6 +198,50 @@ def main() -> None:
 
     # Prune chunks
     conn = init_db(db_path)
+
+    if args.propose:
+        prunable_ids = find_prunable(conn)
+        if not prunable_ids:
+            print("No prunable chunks found — no proposal written.")
+            conn.close()
+            return
+
+        # Build chunk details for the proposal payload
+        chunks_detail = []
+        for cid in prunable_ids:
+            row = conn.execute(
+                "SELECT path, content, importance, (unixepoch() - created_at) / 86400.0 FROM chunks WHERE id = ?",
+                (cid,),
+            ).fetchone()
+            if row:
+                chunks_detail.append({
+                    "id": cid,
+                    "path": row[0],
+                    "content_preview": row[1][:80],
+                    "importance": row[2],
+                    "age_days": int(row[3]),
+                })
+        conn.close()
+
+        # Import proposals (handle direct vs module execution)
+        try:
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).parent.parent))
+            from proposals import write_proposal
+        except ImportError as e:
+            print(f"Cannot import proposals: {e}", file=sys.stderr)
+            return
+
+        path = write_proposal(
+            "prune-set",
+            {"chunks": chunks_detail},
+            "prune.py",
+            f"Prune {len(chunks_detail)} low-value chunks",
+        )
+        print(f"Proposal written: {path}")
+        print(f"Run: python .claude/scripts/proposals.py approve {path}")
+        return
+
     try:
         pruned = prune(conn, dry_run=dry_run)
     finally:

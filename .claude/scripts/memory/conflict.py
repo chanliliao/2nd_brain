@@ -24,7 +24,7 @@ def check_conflicts(new_chunk_id: str, conn: sqlite3.Connection) -> list[dict]:
     3. Find top-5 similar chunks via chunk_vectors where cosine_sim > 0.80
        (exclude new_chunk_id itself and any already superseded chunks)
     4. For each candidate: call Haiku to check contradiction
-    5. For YES contradictions: update superseded_by/supersedes columns
+    5. For YES contradictions: add to conflicts list (no DB write — caller writes proposal)
     6. Return list of {old_id, new_id, reason} for each conflict found
 
     Returns [] if new_chunk_id not found or has no embedding.
@@ -109,18 +109,6 @@ def check_conflicts(new_chunk_id: str, conn: sqlite3.Connection) -> list[dict]:
         reason = answer  # keep full response
 
         if is_contradiction:
-            # Mark old chunk as superseded by new chunk
-            conn.execute(
-                "UPDATE chunks SET superseded_by = ? WHERE id = ?",
-                (new_chunk_id, old_chunk_id),
-            )
-            # Mark new chunk as superseding old chunk
-            conn.execute(
-                "UPDATE chunks SET supersedes = ? WHERE id = ?",
-                (old_chunk_id, new_chunk_id),
-            )
-            conn.commit()
-
             conflicts.append(
                 {
                     "old_id": old_chunk_id,
@@ -130,6 +118,13 @@ def check_conflicts(new_chunk_id: str, conn: sqlite3.Connection) -> list[dict]:
             )
 
     return conflicts
+
+
+def apply_supersede(old_id: str, new_id: str, conn: sqlite3.Connection) -> None:
+    """Apply a supersede relationship — called only after Henry approves a reflect-conflict proposal."""
+    conn.execute("UPDATE chunks SET superseded_by = ? WHERE id = ?", (new_id, old_id))
+    conn.execute("UPDATE chunks SET supersedes = ? WHERE id = ?", (old_id, new_id))
+    conn.commit()
 
 
 def get_conflict_summary(

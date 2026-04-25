@@ -8,12 +8,21 @@
       "Bash(python .claude/scripts/heartbeat.py*)",
       "Bash(python .claude/scripts/memory/reflect.py*)",
       "Bash(python .claude/scripts/memory/query.py*)",
-      "Bash(icacls*)"
+      "Bash(icacls*)",
+      "Bash(python .claude/scripts/proposals.py*)",
+      "Bash(python .claude/mcp/second_brain_server.py*)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {"command": "python .claude/hooks/pre-tool-guardrails.py"}
     ]
+  },
+  "mcpServers": {
+    "second-brain": {
+      "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe",
+      "args": [".claude\\mcp\\second_brain_server.py"],
+      "cwd": "C:\\Users\\cliao\\Desktop\\2nd_Brain"
+    }
   }
 }

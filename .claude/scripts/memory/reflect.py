@@ -63,13 +63,17 @@ def _load_category_ids(vault_root: Path) -> list[str]:
 # Step 2 — Extract facts (Haiku)                                               #
 # --------------------------------------------------------------------------- #
 
-def _extract_facts(log_content: str, client) -> list[str]:
-    """Use Haiku to extract atomic facts from daily log. Returns list of strings."""
+def _extract_facts(log_content: str, client) -> dict:
+    """Use Haiku to extract facts, mistakes, and open problems from daily log.
+    Returns {facts: [...], mistakes: [...], open_problems: [...]}."""
     system = "You are a memory extraction assistant for a personal second brain."
     user = (
-        f"Extract discrete facts, decisions, and learnings from this daily log.\n"
-        f"Output ONLY a valid JSON array of strings, each being one atomic fact. "
-        f"Max 20 facts. No other text.\n\nDaily log:\n{log_content}"
+        "Extract information from this daily log into three categories.\n"
+        "Output ONLY a valid JSON object with exactly these keys:\n"
+        '  "facts": list of strings (decisions, learnings, preferences — max 15)\n'
+        '  "mistakes": list of strings (errors made, wrong assumptions — max 5)\n'
+        '  "open_problems": list of strings (unresolved issues, blockers — max 5)\n'
+        "No other text.\n\nDaily log:\n" + log_content
     )
 
     response = client.messages.create(
@@ -80,21 +84,60 @@ def _extract_facts(log_content: str, client) -> list[str]:
     )
 
     raw = response.content[0].text.strip()
-
-    # Strip markdown code fences if present
     raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
     raw = raw.strip()
 
     try:
-        facts = json.loads(raw)
-        if isinstance(facts, list):
-            return [str(f) for f in facts]
-        print(f"[reflect] WARNING: Haiku returned non-list JSON; treating as empty.", file=sys.stderr)
-        return []
+        result = json.loads(raw)
+        if isinstance(result, dict):
+            return {
+                "facts": [str(f) for f in result.get("facts", [])],
+                "mistakes": [str(m) for m in result.get("mistakes", [])],
+                "open_problems": [str(p) for p in result.get("open_problems", [])],
+            }
     except json.JSONDecodeError as exc:
         print(f"[reflect] WARNING: JSON parse error in fact extraction: {exc}", file=sys.stderr)
-        return []
+    return {"facts": [], "mistakes": [], "open_problems": []}
+
+
+# --------------------------------------------------------------------------- #
+# Dedup helper                                                                  #
+# --------------------------------------------------------------------------- #
+
+def _is_duplicate(fact: str, conn) -> bool:
+    """Return True if this fact is already in the DB (exact hash or cosine > 0.95)."""
+    import numpy as np
+    import sqlite_vec
+    from hashlib import sha256 as _sha256
+
+    content_hash = _sha256(fact.encode()).hexdigest()
+    # Exact match
+    row = conn.execute(
+        "SELECT 1 FROM chunks WHERE content_hash = ? AND superseded_by IS NULL LIMIT 1",
+        (content_hash,),
+    ).fetchone()
+    if row:
+        return True
+
+    # Semantic near-duplicate
+    try:
+        from .embeddings import embed_one
+    except ImportError:
+        from memory.embeddings import embed_one  # type: ignore
+    vec = embed_one(fact)
+    blob = sqlite_vec.serialize_float32(vec)
+    sim_row = conn.execute(
+        """
+        SELECT 1 FROM chunk_vectors cv
+        JOIN chunks c ON c.id = cv.chunk_id
+        WHERE c.superseded_by IS NULL
+          AND (1.0 - vec_distance_cosine(cv.embedding, ?)) > 0.95
+        LIMIT 1
+        """,
+        (blob,),
+    ).fetchone()
+    return sim_row is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -309,38 +352,51 @@ def run_reflection(
     _ = heartbeat_path.exists()
 
     # ---------------------------------------------------------------------- #
-    # Step 2 — Extract candidate facts (Haiku)                                #
+    # Step 2 — Extract facts/mistakes/open_problems (Haiku)                  #
     # ---------------------------------------------------------------------- #
     client = anthropic.Anthropic()
     category_ids = _load_category_ids(vault_root)
 
-    facts = _extract_facts(log_content, client)
-    facts_extracted = len(facts)
+    buckets = _extract_facts(log_content, client)
+    facts_extracted = len(buckets["facts"]) + len(buckets["mistakes"]) + len(buckets["open_problems"])
 
     # ---------------------------------------------------------------------- #
     # Step 3 — Categorize facts (Sonnet)                                      #
     # ---------------------------------------------------------------------- #
-    categorized = _categorize_facts(facts, category_ids, client)
+    categorized = _categorize_facts(buckets["facts"], category_ids, client)
     facts_categorized = len(categorized)
 
     # ---------------------------------------------------------------------- #
-    # Step 4 — Write to MEMORY.md                                             #
+    # Step 4 — Dedup check + write to MEMORY.md                              #
     # ---------------------------------------------------------------------- #
-    facts_written = _write_memory_section(vault_root, yesterday, categorized)
+    conn = init_db(db_path)
+
+    surviving = [item for item in categorized if not _is_duplicate(item["fact"], conn)]
+    facts_written = _write_memory_section(vault_root, yesterday, surviving)
 
     # ---------------------------------------------------------------------- #
     # Step 5 — Re-index MEMORY.md                                             #
     # ---------------------------------------------------------------------- #
-    conn = init_db(db_path)
     memory_path = vault_root / "MEMORY.md"
     index_file(memory_path, vault_root, conn)
     conn.commit()
 
     # ---------------------------------------------------------------------- #
-    # Step 6 — Check conflicts                                                 #
+    # Step 6 — Check conflicts (read-only) + write proposals                  #
     # ---------------------------------------------------------------------- #
-    today_start_ts = time.mktime(date.today().timetuple())
+    # Import proposals helper
+    try:
+        _scripts_parent = Path(__file__).resolve().parent.parent
+        import sys as _sys
+        if str(_scripts_parent) not in _sys.path:
+            _sys.path.insert(0, str(_scripts_parent))
+        from proposals import write_proposal  # type: ignore
+        _has_proposals = True
+    except ImportError:
+        _has_proposals = False
 
+    yesterday_str = yesterday.strftime("%Y-%m-%d")
+    today_start_ts = time.mktime(date.today().timetuple())
     new_chunk_ids = [
         row[0]
         for row in conn.execute(
@@ -352,6 +408,37 @@ def run_reflection(
     all_conflicts: list[dict] = []
     for cid in new_chunk_ids:
         all_conflicts.extend(check_conflicts(cid, conn))
+
+    if _has_proposals:
+        for conflict in all_conflicts:
+            old_row = conn.execute("SELECT content FROM chunks WHERE id = ?", (conflict["old_id"],)).fetchone()
+            new_row = conn.execute("SELECT content FROM chunks WHERE id = ?", (conflict["new_id"],)).fetchone()
+            write_proposal(
+                "reflect-conflict",
+                {
+                    "old_chunk_id": conflict["old_id"],
+                    "new_chunk_id": conflict["new_id"],
+                    "old_content": old_row[0] if old_row else "",
+                    "new_content": new_row[0] if new_row else "",
+                    "reason": conflict["reason"],
+                },
+                "reflect.py",
+                f"Conflict: {conflict['old_id']} vs {conflict['new_id']}",
+            )
+        for mistake in buckets["mistakes"]:
+            write_proposal(
+                "reflect-mistake",
+                {"description": mistake, "context": yesterday_str, "suggested_category": "debugging"},
+                "reflect.py",
+                mistake[:60],
+            )
+        for problem in buckets["open_problems"]:
+            write_proposal(
+                "reflect-mistake",
+                {"description": problem, "context": yesterday_str, "suggested_category": "debugging"},
+                "reflect.py",
+                problem[:60],
+            )
 
     conn.commit()
     conn.close()

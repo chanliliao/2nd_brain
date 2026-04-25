@@ -46,7 +46,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>C:\Users\cliao\Desktop\2nd_Brain\.claude\venv\Scripts\python.exe</Command>
-      <Arguments>.claude\scripts\memory\prune.py --execute</Arguments>
+      <Arguments>.claude\scripts\memory\prune.py --propose</Arguments>
       <WorkingDirectory>C:\Users\cliao\Desktop\2nd_Brain</WorkingDirectory>
     </Exec>
   </Actions>

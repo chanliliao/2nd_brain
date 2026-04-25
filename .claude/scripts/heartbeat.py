@@ -236,8 +236,9 @@ def _write_draft_action_note(
     draft_emails: list[str],
     draft_prs: list[str],
     logger: logging.Logger,
+    pending: int = 0,
 ) -> None:
-    if not draft_emails and not draft_prs:
+    if not draft_emails and not draft_prs and not pending:
         return
 
     today_str = date.today().strftime("%Y-%m-%d")
@@ -252,6 +253,9 @@ def _write_draft_action_note(
         lines.append("\n**PRs needing review drafts:**")
         for pr_key in draft_prs:
             lines.append(f"- {pr_key} — run `/code-review-sweep` to draft a review")
+    if pending > 0:
+        lines.append(f"\n**Memory proposals pending approval:** {pending}")
+        lines.append(f"- Run `/memory-review` to review")
 
     section = "\n".join(lines) + "\n"
 
@@ -309,6 +313,26 @@ def _write_heartbeat_md(
         lines += ["", "## Habit Notes", analysis["habit_notes"]]
 
     heartbeat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Pending proposals count                                                       #
+# --------------------------------------------------------------------------- #
+
+def _count_pending_proposals(vault_root: Path) -> int:
+    """Count markdown files with status: pending-review in vault/drafts/proposals/."""
+    proposals_dir = vault_root / "drafts" / "proposals"
+    if not proposals_dir.exists():
+        return 0
+    count = 0
+    for f in proposals_dir.glob("*.md"):
+        try:
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            if "status: pending-review" in text:
+                count += 1
+        except Exception:
+            pass
+    return count
 
 
 # --------------------------------------------------------------------------- #
@@ -381,11 +405,13 @@ def run_heartbeat(
         logger.info(f"Toast {'sent' if ok else 'failed (see fallback)'}")
 
     # Write action notes to daily log
+    pending_proposals = _count_pending_proposals(vault_root)
     _write_draft_action_note(
         vault_root,
         analysis.get("draft_emails", []),
         analysis.get("draft_prs", []),
         logger,
+        pending=pending_proposals,
     )
 
     # Update HEARTBEAT.md
