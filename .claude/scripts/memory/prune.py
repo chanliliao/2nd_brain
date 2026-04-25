@@ -2,7 +2,7 @@
 prune.py — Remove low-value indexed chunks and archive old drafts.
 
 Pruning criteria:
-  - importance < 0.2 AND age_days > 90 AND (tag IS NULL OR tag != '#keep')
+  - importance < 0.2 AND age_days > 90
 
 Only UNINDEX chunks (remove from chunk_vectors + chunks_fts).
 NEVER delete from chunks table — raw metadata stays.
@@ -36,7 +36,7 @@ def _find_project_root() -> Path:
 def find_prunable(conn: sqlite3.Connection) -> list[str]:
     """Return list of chunk IDs matching prune criteria.
 
-    Criteria: importance < 0.2 AND age_days > 90 AND (tag IS NULL OR tag != '#keep')
+    Criteria: importance < 0.2 AND age_days > 90
     Only returns IDs that exist in chunk_vectors (i.e., currently indexed).
 
     Args:
@@ -51,7 +51,6 @@ def find_prunable(conn: sqlite3.Connection) -> list[str]:
     INNER JOIN chunk_vectors cv ON c.id = cv.chunk_id
     WHERE c.importance < 0.2
       AND (unixepoch() - c.created_at) / 86400.0 > 90
-      AND (c.tag IS NULL OR c.tag != '#keep')
     """
     cursor = conn.execute(query)
     return [row[0] for row in cursor.fetchall()]
