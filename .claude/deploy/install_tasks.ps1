@@ -18,27 +18,32 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     exit 1
 }
 
-# --- Task definitions (xml filename -> task name) ---
-$tasks = [ordered]@{
-    'heartbeat.xml'      = 'SecondBrain - Heartbeat'
-    'reflect.xml'        = 'SecondBrain - Daily Reflection'
-    'compact_weekly.xml' = 'SecondBrain - Weekly Compact'
-    'prune_weekly.xml'   = 'SecondBrain - Weekly Prune'
-    'monthly_rollup.xml' = 'SecondBrain - Monthly Rollup'
-}
+# --- Task definitions (xml path -> task name) ---
+# Most XMLs live in deploy/tasks/; the claude-mem bridge lives in .claude/tasks/.
+$projectRoot = 'C:\Users\cliao\Desktop\2nd_Brain'
+$deployTasksDir = Join-Path $PSScriptRoot 'tasks'
+$extraTasksDir  = Join-Path $projectRoot '.claude\tasks'
 
-$tasksDir = Join-Path $PSScriptRoot 'tasks'
+$tasks = [ordered]@{
+    (Join-Path $deployTasksDir 'heartbeat.xml')                           = 'SecondBrain - Heartbeat'
+    (Join-Path $deployTasksDir 'reflect.xml')                             = 'SecondBrain - Daily Reflection'
+    (Join-Path $deployTasksDir 'auto_approve.xml')                        = 'SecondBrain - AutoApprove'
+    (Join-Path $deployTasksDir 'compact_weekly.xml')                      = 'SecondBrain - Weekly Compact'
+    (Join-Path $deployTasksDir 'prune_weekly.xml')                        = 'SecondBrain - Weekly Prune'
+    (Join-Path $deployTasksDir 'monthly_rollup.xml')                      = 'SecondBrain - Monthly Rollup'
+    (Join-Path $extraTasksDir  'SecondBrain-ClaudeMemBridge.xml')         = 'SecondBrain - ClaudeMemBridge'
+}
 $passCount = 0
 $failCount = 0
 
 Write-Host ""
 Write-Host "=== Second Brain Task Installer ===" -ForegroundColor Cyan
-Write-Host "Tasks directory: $tasksDir"
+Write-Host "Deploy tasks:  $deployTasksDir"
+Write-Host "Extra tasks:   $extraTasksDir"
 Write-Host ""
 
-foreach ($xmlFile in $tasks.Keys) {
-    $xmlPath  = Join-Path $tasksDir $xmlFile
-    $taskName = $tasks[$xmlFile]
+foreach ($xmlPath in $tasks.Keys) {
+    $taskName = $tasks[$xmlPath]
 
     if (-not (Test-Path $xmlPath)) {
         Write-Host "  [FAIL] $taskName" -ForegroundColor Red

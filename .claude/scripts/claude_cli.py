@@ -24,16 +24,27 @@ def _find_claude() -> str:
     )
 
 
-def call_claude(prompt: str, system: str = "", model: str = "haiku", timeout: int = 120) -> str:
-    """Run a one-shot prompt via claude -p. Uses existing Claude Code OAuth auth."""
+def call_claude(prompt: str, system: str = "", model: str = "haiku", timeout: int = 240) -> str:
+    """Run a one-shot prompt via claude -p. Uses existing Claude Code OAuth auth.
+
+    Uses --tools "" to skip tool initialization — significantly faster when run
+    from Task Scheduler where plugin/hook startup can exceed 2 minutes otherwise.
+    """
     global _CLAUDE_BIN
     if _CLAUDE_BIN is None:
         _CLAUDE_BIN = _find_claude()
 
-    cmd = [_CLAUDE_BIN, "-p", prompt, "--model", model, "--output-format", "text",
-           "--no-session-persistence"]
-    if system:
-        cmd += ["--system-prompt", system]
+    # Embed system prompt in the user message to avoid --system-prompt arg issues
+    # on Windows subprocess invocations (large args + potential flag parsing problems).
+    full_prompt = f"<system>\n{system}\n</system>\n\n{prompt}" if system else prompt
+
+    cmd = [
+        _CLAUDE_BIN, "-p", full_prompt,
+        "--model", model,
+        "--output-format", "text",
+        "--no-session-persistence",
+        "--tools", "",          # skip tool init — much faster non-interactive startup
+    ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:

@@ -1,4 +1,7 @@
 {
+  "env": {
+    "PATH": "/c/Users/cliao/AppData/Roaming/npm:/c/Program Files/nodejs:/c/Users/cliao/.cargo/bin:${PATH}"
+  },
   "mcpServers": {
     "second-brain": {
       "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe",
@@ -14,7 +17,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\session-start-context.py"
+            "command": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts/python.exe /c/Users/cliao/Desktop/2nd_Brain/.claude/hooks/session-start-context.py"
+          },
+          {
+            "type": "command",
+            "command": "llmwiki sync --quiet 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "caveman-session-start 2>/dev/null || true"
           }
         ]
       }
@@ -25,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\pre-tool-guardrails.py"
+            "command": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts/python.exe /c/Users/cliao/Desktop/2nd_Brain/.claude/hooks/pre-tool-guardrails.py"
           }
         ]
       },
@@ -45,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\pre-compact-flush.py"
+            "command": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts/python.exe /c/Users/cliao/Desktop/2nd_Brain/.claude/hooks/pre-compact-flush.py"
           }
         ]
       }
@@ -56,7 +67,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\hooks\\session-end-flush.py"
+            "command": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts/python.exe /c/Users/cliao/Desktop/2nd_Brain/.claude/hooks/session-end-flush.py"
           }
         ]
       }
