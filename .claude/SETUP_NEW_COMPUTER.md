@@ -377,6 +377,10 @@ Bearer tokens must be stored in an environment variable — never hardcoded in t
 
 **Step 1 — Store the bearer token as a Windows environment variable:**
 
+> **Human step — cannot be automated.** The bearer token lives on Computer 1 only.
+> You must physically run the retrieval command on Computer 1 (see A7 Step 2) and
+> paste the result below. Codex cannot fetch this for you.
+
 Get the token from Computer 1 using the same command from A7 Step 2.
 
 ```powershell
@@ -421,11 +425,11 @@ Then start a Codex session and ask it to call `search_memory`. It should return 
 
 ---
 
-### B5 — Memory injection in Codex
+### B5 — Memory injection + Dream Skill in Codex
 
-Claude Code injects memory via the `session-start-context.py` hook. Codex has no equivalent automatic hook for this.
+Claude Code injects memory via hooks and auto-captures sessions via plugins. Codex has no hooks or plugins — both must be done via AGENTS.md instructions.
 
-Add this instruction to `AGENTS.md` in the repo root so Codex pulls context at the start of every task:
+Add the following to `AGENTS.md` in the repo root:
 
 ```markdown
 ## Memory
@@ -434,6 +438,54 @@ At the start of every session, call `search_memory` with a query describing
 the current task to load relevant context from the Second Brain vault before
 taking any action. Example: if working on the heartbeat script, query
 "heartbeat nightly pipeline design decisions".
+
+## Dream Skill (Session End Protocol)
+
+When the user says "wrap up", "end session", or "dream", execute this protocol
+in order — do not skip steps:
+
+### Step 1 — Propose key facts
+For each decision, insight, or learning worth keeping long-term, call
+`propose_memory_fact` once per fact:
+- `category`: one of the vault categories (coding-projects, debugging,
+  career-goals, interview-prep, snippets, agent-designs)
+- `content`: clear, self-contained statement of the fact
+- `source_agent`: "codex"
+- `tags`: relevant keywords
+
+### Step 2 — Log the session
+Call `log_agent_session` with:
+- `agent_name`: "codex"
+- `summary`: 3-5 sentence summary of what was worked on this session
+- `outcome`: one of "completed", "partial", "blocked", "abandoned"
+- `lessons`: list of non-obvious lessons learned (empty list if none)
+
+This writes a session log proposal to `vault/drafts/proposals/` on Computer 1.
+Henry approves it the next morning — it then flows into the nightly reflect
+pipeline exactly like Claude Code sessions.
+
+### Step 3 — Sync vault
+```bash
+git add vault/
+git commit -m "chore: codex session $(date +%Y-%m-%d)"
+git push
+```
+
+**How it connects to the nightly pipeline:**
+Codex → `log_agent_session` MCP call → `vault/drafts/proposals/` on Computer 1
+→ Henry approves next morning → stored in vault → available in next session
+via `search_memory`.
+
+> **Important — two things the dream skill does NOT do automatically:**
+>
+> 1. **"dream" must be triggered manually.** Codex has no session-close hook.
+>    You must say "dream", "wrap up", or "end session" yourself before closing.
+>    If you forget, the session is not logged.
+>
+> 2. **The 4am nightly pipeline does not re-process Codex session logs.**
+>    The pipeline reflects on Claude Code daily logs only. Codex facts land in
+>    the vault via Henry's manual approval — that is the endpoint. No further
+>    automated processing happens after approval.
 ```
 
 ---
@@ -459,8 +511,10 @@ Start a Codex session in the project directory. Confirm:
 - [ ] `codex mcp list` shows `second-brain`
 - [ ] Codex can call `search_memory` and returns vault results
 - [ ] Codex can call `propose_memory_fact` and a file appears in `vault/drafts/proposals/`
+- [ ] Codex can call `log_agent_session` and a session log proposal appears in `vault/drafts/proposals/`
 - [ ] Codex respects vault hard limits from `AGENTS.md` (asks before deleting, drafts only for emails)
 - [ ] `git pull` before starting work returns latest vault state
+- [ ] Saying "dream" triggers session summary + MCP calls + git push
 
 ---
 
