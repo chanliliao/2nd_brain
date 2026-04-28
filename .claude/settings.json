@@ -1,6 +1,6 @@
 {
   "env": {
-    "PATH": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts:/c/Windows/System32:/c/Users/cliao/.bun/bin:/c/Users/cliao/AppData/Roaming/npm:/c/Program Files/nodejs:/c/Users/cliao/.cargo/bin:${PATH}"
+    "PATH": "${HOME}/.cargo/bin:${HOME}/.bun/bin:${HOME}/AppData/Roaming/npm:/c/Program Files/nodejs:/c/Windows/System32:${PATH}"
   },
   "hooks": {
     "PreToolUse": [
@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts/python.exe /c/Users/cliao/Desktop/2nd_Brain/.claude/hooks/pre-tool-guardrails.py"
+            "command": ".claude/scripts/run_python.sh .claude/hooks/pre-tool-guardrails.py"
           }
         ]
       },
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/c/Users/cliao/Desktop/2nd_Brain/.claude/venv/Scripts/python.exe /c/Users/cliao/Desktop/2nd_Brain/.claude/hooks/pre-compact-flush.py"
+            "command": ".claude/scripts/run_python.sh .claude/hooks/pre-compact-flush.py"
           }
         ]
       }
