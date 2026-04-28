@@ -98,7 +98,7 @@ def write_proposal(type: str, payload: dict[str, Any], proposed_by: str, body: s
     _PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(tz=timezone.utc)
     proposal_id = _next_proposal_id()
-    path = _PROPOSALS_DIR / f"{now.strftime('%Y-%m-%d')}_{type}_{_slugify(body)}.md"
+    path = _PROPOSALS_DIR / f"{now.strftime('%Y-%m-%d')}_{type}_{proposal_id:03d}.md"
     lines = ["---", f"id: {proposal_id}", f"type: {type}", f"proposed_at: {now.strftime('%Y-%m-%dT%H:%M:%SZ')}",
              f"proposed_by: {proposed_by}", "status: pending-review", "payload:"]
     for k, v in payload.items():
@@ -161,6 +161,32 @@ def _execute_codeburn_commands(commands: list) -> None:
                 print(f"  Already in CLAUDE.md: {cmd[:60]}")
 
 
+def _apply_rule_to_claude_md(rule: str) -> None:
+    """Append a behavioral rule to the project CLAUDE.md if not already present."""
+    claude_md = _ROOT / "CLAUDE.md"
+    if not claude_md.exists():
+        return
+    existing = claude_md.read_text(encoding="utf-8")
+    if rule.strip() in existing:
+        print(f"  Rule already in CLAUDE.md: {rule[:60]}")
+        return
+    claude_md.write_text(existing.rstrip() + f"\n\n## Auto-rule (reflect)\n{rule}\n", encoding="utf-8")
+    print(f"  Rule added to CLAUDE.md: {rule[:80]}")
+
+
+def _write_code_action(today: str, problem: str, fix: str) -> None:
+    """Write a pending code-change action to vault/actions/ for manual review."""
+    actions_dir = _VAULT / "actions"
+    actions_dir.mkdir(parents=True, exist_ok=True)
+    dest = actions_dir / f"{today}_fix_{_slugify(problem)}.md"
+    dest.write_text(
+        f"---\nstatus: pending\ndate: {today}\n---\n\n"
+        f"## Problem\n{problem}\n\n## Fix\n{fix}\n",
+        encoding="utf-8",
+    )
+    print(f"  Code action written: {dest.name}")
+
+
 def _approve(fm: dict) -> None:
     p, t, today = fm.get("payload", {}), fm.get("type", ""), date.today().isoformat()
 
@@ -178,9 +204,21 @@ def _approve(fm: dict) -> None:
 
     elif t == "reflect-mistake":
         cat = p.get("suggested_category", "Misc")
-        dest = _write_md(_VAULT / "Memory" / cat / f"{today}_mistake_{_slugify(p.get('description',''))}.md",
-                         f"type: mistake\ncategory: {cat!r}\n", p.get("description", ""))
+        desc = p.get("description", "")
+        fix = p.get("fix_description", "")
+        fix_type = p.get("fix_type", "reminder")
+        body = f"**Problem:** {desc}\n\n**Fix:** {fix}" if fix else desc
+        dest = _write_md(
+            _VAULT / "Memory" / cat / f"{today}_mistake_{_slugify(desc)}.md",
+            f"type: mistake\ncategory: {cat!r}\nfix_type: {fix_type!r}\n",
+            body,
+        )
         _index(dest)
+        # Apply the fix based on fix_type
+        if fix and fix_type == "rule":
+            _apply_rule_to_claude_md(fix)
+        elif fix and fix_type == "code":
+            _write_code_action(today, desc, fix)
 
     elif t == "prune-set":
         try:
@@ -204,8 +242,14 @@ def _approve(fm: dict) -> None:
 
     elif t == "reflect-shortcut":
         cat = p.get("suggested_category", "snippets")
-        dest = _write_md(_VAULT / "Memory" / cat / f"{today}_shortcut_{_slugify(p.get('description',''))}.md",
-                         f"type: shortcut\ncategory: {cat!r}\n", p.get("description", ""))
+        desc = p.get("description", "")
+        fix = p.get("fix_description", "")
+        body = f"**Shortcut:** {desc}\n\n**How to apply:** {fix}" if fix else desc
+        dest = _write_md(
+            _VAULT / "Memory" / cat / f"{today}_shortcut_{_slugify(desc)}.md",
+            f"type: shortcut\ncategory: {cat!r}\n",
+            body,
+        )
         _index(dest)
 
     elif t == "agent-session-log":

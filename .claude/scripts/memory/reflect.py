@@ -74,9 +74,10 @@ def _extract_facts(log_content: str) -> dict:
         "Extract information from this daily log into four categories.\n"
         "Output ONLY a valid JSON object with exactly these keys:\n"
         '  "facts": list of strings (decisions, learnings, preferences — max 15)\n'
-        '  "mistakes": list of strings (errors made, wrong assumptions — max 5)\n'
-        '  "open_problems": list of strings (unresolved issues, blockers — max 5)\n'
+        '  "mistakes": list of {"description": str, "fix": str, "fix_type": "rule"|"code"|"reminder"} — errors made + concrete fix (max 5)\n'
+        '  "open_problems": list of {"description": str, "fix": str, "fix_type": "rule"|"code"|"reminder"} — unresolved issues + proposed solution (max 5)\n'
         '  "shortcuts": list of strings (approaches that worked well, time-savers, successful patterns — max 5)\n'
+        "fix_type meanings: rule=behavioral rule to add to CLAUDE.md, code=code change needed, reminder=general note.\n"
         "No other text.\n\nDaily log:\n" + log_content
     )
 
@@ -85,13 +86,23 @@ def _extract_facts(log_content: str) -> dict:
     raw = re.sub(r"\s*```$", "", raw)
     raw = raw.strip()
 
+    def _normalize_item(item) -> dict:
+        """Normalize a mistake/problem entry — handles both str and dict formats."""
+        if isinstance(item, dict):
+            return {
+                "description": str(item.get("description", item.get("text", str(item)))),
+                "fix": str(item.get("fix", "")),
+                "fix_type": str(item.get("fix_type", "reminder")),
+            }
+        return {"description": str(item), "fix": "", "fix_type": "reminder"}
+
     try:
         result = json.loads(raw)
         if isinstance(result, dict):
             return {
                 "facts": [str(f) for f in result.get("facts", [])],
-                "mistakes": [str(m) for m in result.get("mistakes", [])],
-                "open_problems": [str(p) for p in result.get("open_problems", [])],
+                "mistakes": [_normalize_item(m) for m in result.get("mistakes", [])],
+                "open_problems": [_normalize_item(p) for p in result.get("open_problems", [])],
                 "shortcuts": [str(s) for s in result.get("shortcuts", [])],
             }
     except json.JSONDecodeError as exc:
@@ -280,6 +291,24 @@ def _write_heartbeat(
 # Public API                                                                   #
 # --------------------------------------------------------------------------- #
 
+def _reflect_already_proposed(description: str) -> bool:
+    """Return True if a reflect-mistake/shortcut with this description already exists."""
+    drafts = _PROJECT_ROOT / "vault" / "drafts"
+    needle = description[:60].lower()
+    for folder in ("proposals", "approved", "rejected"):
+        d = drafts / folder
+        if not d.exists():
+            continue
+        for f in d.glob("*.md"):
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace").lower()
+                if needle in text and ("reflect-mistake" in text or "reflect-shortcut" in text):
+                    return True
+            except OSError:
+                pass
+    return False
+
+
 def run_reflection(
     vault_root: Path,
     db_path: Path,
@@ -349,7 +378,8 @@ def run_reflection(
     category_ids = _load_category_ids(vault_root)
 
     buckets = _extract_facts(log_content)
-    facts_extracted = len(buckets["facts"]) + len(buckets["mistakes"]) + len(buckets["open_problems"]) + len(buckets.get("shortcuts", []))
+    facts_extracted = (len(buckets["facts"]) + len(buckets["mistakes"])
+                       + len(buckets["open_problems"]) + len(buckets.get("shortcuts", [])))
 
     # ---------------------------------------------------------------------- #
     # Step 3 — Categorize facts (Sonnet)                                      #
@@ -416,21 +446,40 @@ def run_reflection(
                 "reflect.py",
                 f"Conflict: {conflict['old_id']} vs {conflict['new_id']}",
             )
-        for mistake in buckets["mistakes"]:
+        for item in buckets["mistakes"]:
+            desc = item["description"]
+            fix = item["fix"]
+            fix_type = item["fix_type"]
+            if _reflect_already_proposed(desc):
+                print(f"[reflect] Skip duplicate mistake: {desc[:60]}", file=sys.stderr)
+                continue
+            body = f"**Problem:** {desc}\n\n**Fix ({fix_type}):** {fix}" if fix else desc
             write_proposal(
                 "reflect-mistake",
-                {"description": mistake, "context": yesterday_str, "suggested_category": "debugging"},
+                {"description": desc, "fix_description": fix, "fix_type": fix_type,
+                 "context": yesterday_str, "suggested_category": "debugging"},
                 "reflect.py",
-                mistake,
+                body,
             )
-        for problem in buckets["open_problems"]:
+        for item in buckets["open_problems"]:
+            desc = item["description"]
+            fix = item["fix"]
+            fix_type = item["fix_type"]
+            if _reflect_already_proposed(desc):
+                print(f"[reflect] Skip duplicate open_problem: {desc[:60]}", file=sys.stderr)
+                continue
+            body = f"**Problem:** {desc}\n\n**Fix ({fix_type}):** {fix}" if fix else desc
             write_proposal(
                 "reflect-mistake",
-                {"description": problem, "context": yesterday_str, "suggested_category": "debugging"},
+                {"description": desc, "fix_description": fix, "fix_type": fix_type,
+                 "context": yesterday_str, "suggested_category": "debugging"},
                 "reflect.py",
-                problem,
+                body,
             )
         for shortcut in buckets.get("shortcuts", []):
+            if _reflect_already_proposed(shortcut):
+                print(f"[reflect] Skip duplicate shortcut: {shortcut[:60]}", file=sys.stderr)
+                continue
             write_proposal(
                 "reflect-shortcut",
                 {"description": shortcut, "context": yesterday_str, "suggested_category": "snippets"},
