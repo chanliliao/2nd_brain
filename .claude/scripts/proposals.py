@@ -174,21 +174,64 @@ def _apply_rule_to_claude_md(rule: str) -> None:
     print(f"  Rule added to CLAUDE.md: {rule[:80]}")
 
 
-def _write_code_action(today: str, problem: str, fix: str) -> None:
-    """Write a pending code-change action to vault/actions/ for manual review."""
-    actions_dir = _VAULT / "actions"
-    actions_dir.mkdir(parents=True, exist_ok=True)
-    dest = actions_dir / f"{today}_fix_{_slugify(problem)}.md"
-    dest.write_text(
-        f"---\nstatus: pending\ndate: {today}\n---\n\n"
-        f"## Problem\n{problem}\n\n## Fix\n{fix}\n",
-        encoding="utf-8",
+def _apply_code_fix_auto(problem: str, fix_description: str) -> None:
+    """Call Claude (Sonnet) to generate and apply a code fix from the fix description."""
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from claude_cli import call_claude  # type: ignore
+    except ImportError:
+        print(f"  Cannot auto-apply (claude_cli unavailable): {fix_description}")
+        return
+
+    import json as _json
+    import re as _re
+
+    prompt = (
+        f"Project root: {_ROOT}\n\n"
+        f"Problem: {problem}\n\n"
+        f"Fix: {fix_description}\n\n"
+        "Return ONLY a JSON object:\n"
+        '{"file": "<path relative to project root>", "old": "<exact text to replace>", "new": "<replacement text>"}\n'
+        "Rules: path must be relative. old must be exact substring present in the file. "
+        'If no specific code change can be determined, return {"file": null}. No other text.'
     )
-    print(f"  Code action written: {dest.name}")
+
+    try:
+        raw = call_claude(prompt, model="sonnet").strip()
+        raw = _re.sub(r"^```(?:json)?\s*", "", raw, flags=_re.IGNORECASE)
+        raw = _re.sub(r"\s*```$", "", raw.strip())
+        patch = _json.loads(raw.strip())
+    except Exception as exc:
+        print(f"  Auto-apply failed (parse error {exc}): {fix_description[:60]}")
+        return
+
+    if not patch.get("file"):
+        print(f"  Auto-apply: no file identified for: {problem[:60]}")
+        return
+
+    target = _ROOT / patch["file"]
+    if not target.exists():
+        print(f"  Auto-apply: file not found: {patch['file']}")
+        return
+
+    old_text = patch.get("old", "")
+    new_text = patch.get("new", "")
+    if not old_text:
+        print(f"  Auto-apply: empty old text in patch")
+        return
+
+    content = target.read_text(encoding="utf-8")
+    if old_text not in content:
+        print(f"  Auto-apply: old text not found in {patch['file']}")
+        return
+
+    target.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
+    print(f"  Auto-applied code fix to {patch['file']}")
 
 
 def _approve(fm: dict) -> None:
     p, t, today = fm.get("payload", {}), fm.get("type", ""), date.today().isoformat()
+    pid = int(fm.get("id", 0))
 
     if t == "reflect-conflict":
         try:
@@ -209,16 +252,15 @@ def _approve(fm: dict) -> None:
         fix_type = p.get("fix_type", "reminder")
         body = f"**Problem:** {desc}\n\n**Fix:** {fix}" if fix else desc
         dest = _write_md(
-            _VAULT / "Memory" / cat / f"{today}_mistake_{_slugify(desc)}.md",
+            _VAULT / "Memory" / cat / f"{today}_reflect-mistake_{pid:03d}.md",
             f"type: mistake\ncategory: {cat!r}\nfix_type: {fix_type!r}\n",
             body,
         )
         _index(dest)
-        # Apply the fix based on fix_type
         if fix and fix_type == "rule":
             _apply_rule_to_claude_md(fix)
         elif fix and fix_type == "code":
-            _write_code_action(today, desc, fix)
+            _apply_code_fix_auto(desc, fix)
 
     elif t == "prune-set":
         try:
@@ -235,9 +277,11 @@ def _approve(fm: dict) -> None:
     elif t == "agent-memfact":
         cat = p.get("category", "Misc")
         tags = ", ".join(p.get("tags") or [])
-        dest = _write_md(_VAULT / "Memory" / cat / f"{today}_{_slugify(p.get('content',''))}.md",
-                         f"category: {cat!r}\ntags: {tags}\nsource_agent: {p.get('source_agent','')!r}\n",
-                         p.get("content", ""))
+        dest = _write_md(
+            _VAULT / "Memory" / cat / f"{today}_agent-memfact_{pid:03d}.md",
+            f"category: {cat!r}\ntags: {tags}\nsource_agent: {p.get('source_agent','')!r}\n",
+            p.get("content", ""),
+        )
         _index(dest)
 
     elif t == "reflect-shortcut":
@@ -246,7 +290,7 @@ def _approve(fm: dict) -> None:
         fix = p.get("fix_description", "")
         body = f"**Shortcut:** {desc}\n\n**How to apply:** {fix}" if fix else desc
         dest = _write_md(
-            _VAULT / "Memory" / cat / f"{today}_shortcut_{_slugify(desc)}.md",
+            _VAULT / "Memory" / cat / f"{today}_reflect-shortcut_{pid:03d}.md",
             f"type: shortcut\ncategory: {cat!r}\n",
             body,
         )
@@ -265,7 +309,7 @@ def _approve(fm: dict) -> None:
         cmds = p.get("commands", [])
         cmd_block = ("\n\n### Commands\n```\n" + "\n".join(cmds) + "\n```") if cmds else ""
         dest = _write_md(
-            _VAULT / "Memory" / "snippets" / f"{today}_codeburn_{_slugify(title)}.md",
+            _VAULT / "Memory" / "snippets" / f"{today}_codeburn-suggestion_{pid:03d}.md",
             f"type: codeburn-suggestion\npriority: {p.get('priority', 'Medium')!r}\n",
             f"## {title}\n\n{p.get('description', '')}\n\nSavings: {p.get('savings', '')}{cmd_block}",
         )
