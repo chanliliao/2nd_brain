@@ -14,10 +14,21 @@
 ```
 Computer 1 (vault host)                    Computer 2+ (this machine)
 ─────────────────────────────              ──────────────────────────
-vault/ (source of truth)     ←─ git ─→    vault/ (replica)
+vault/ (source of truth)     ←─ git ─→    vault/ (replica, read/write via git)
 nightly pipeline (4am)                     NO nightly pipeline
+  → writes daily logs                      → gets results via git pull
+  → generates proposals                    → can READ proposals via git pull
+  → heartbeat + memory reflect             → cannot APPROVE proposals here (see below)
 MCP HTTP server (Tailscale)  ←─ MCP ─→   Claude Code / Codex
+  → search_memory                          → propose_memory_fact (queued, needs approval)
+  → list_categories                        → get_recent_daily_logs
 ```
+
+**Critical workflow rules for Computer 2+:**
+
+1. **Dream pipeline runs on Computer 1 only.** Do not register Task Scheduler tasks here.
+2. **Approve/reject proposals on Computer 1 only.** Proposal approval (`proposals.py approve`) executes local shell commands (moves agent files, writes to `~/.claude/CLAUDE.md`). Running it on Computer 2 will target the wrong paths. To review morning proposals: `git pull` here to read the files, then `git push` any vault edits, then switch to Computer 1 to run the approval.
+3. **Vault writes flow:** AI agents on this machine propose via MCP → proposal file lands in `vault/drafts/proposals/` on Computer 1 → Henry approves on Computer 1 → Computer 1 pushes → this machine pulls.
 
 ---
 
