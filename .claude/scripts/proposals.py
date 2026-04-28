@@ -75,12 +75,31 @@ def _index(dest: Path) -> None:
 
 # ── public write API ───────────────────────────────────────────────────────────
 
+def _next_proposal_id() -> int:
+    """Return next sequential proposal ID across all proposal dirs."""
+    max_id = 0
+    for folder in ("proposals", "approved", "rejected"):
+        d = _VAULT / "drafts" / folder
+        if not d.exists():
+            continue
+        for f in d.glob("*.md"):
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+                m = re.search(r"^id:\s*(\d+)", text, re.MULTILINE)
+                if m:
+                    max_id = max(max_id, int(m.group(1)))
+            except OSError:
+                pass
+    return max_id + 1
+
+
 def write_proposal(type: str, payload: dict[str, Any], proposed_by: str, body: str) -> Path:
     """Create a pending proposal file and return its path."""
     _PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(tz=timezone.utc)
+    proposal_id = _next_proposal_id()
     path = _PROPOSALS_DIR / f"{now.strftime('%Y-%m-%d')}_{type}_{_slugify(body)}.md"
-    lines = ["---", f"type: {type}", f"proposed_at: {now.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+    lines = ["---", f"id: {proposal_id}", f"type: {type}", f"proposed_at: {now.strftime('%Y-%m-%dT%H:%M:%SZ')}",
              f"proposed_by: {proposed_by}", "status: pending-review", "payload:"]
     for k, v in payload.items():
         if isinstance(v, list):

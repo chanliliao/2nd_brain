@@ -1,6 +1,6 @@
 {
   "env": {
-    "PATH": "${HOME}/.cargo/bin:${HOME}/.bun/bin:${HOME}/AppData/Roaming/npm:/c/Program Files/nodejs:/c/Windows/System32:${PATH}"
+    "PATH": "/c/Users/cliao/.cargo/bin:/c/Users/cliao/.bun/bin:/c/Users/cliao/AppData/Roaming/npm:/c/Program Files/nodejs:/c/Windows/System32:${PATH}"
   },
   "hooks": {
     "PreToolUse": [

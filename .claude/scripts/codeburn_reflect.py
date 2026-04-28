@@ -114,10 +114,27 @@ def _parse_suggestions(text: str) -> list[dict]:
     return suggestions
 
 
+def _already_decided(title: str) -> bool:
+    """Return True if a proposal with this title was already approved or rejected."""
+    vault = _ROOT / "vault" / "drafts"
+    for folder in ("approved", "rejected"):
+        for f in (vault / folder).glob("*codeburn-suggestion*.md"):
+            try:
+                text = f.read_text(encoding="utf-8")
+                if f"title: '{title}'" in text or f'title: "{title}"' in text:
+                    return True
+            except OSError:
+                pass
+    return False
+
+
 def _create_proposals(suggestions: list[dict]) -> None:
     from proposals import write_proposal  # type: ignore
 
     for s in suggestions:
+        if _already_decided(s["title"]):
+            print(f"  Skip (already approved/rejected): {s['title'][:60]}")
+            continue
         payload = {
             "title": s["title"],
             "priority": s["priority"],

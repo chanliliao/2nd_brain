@@ -421,21 +421,21 @@ def run_reflection(
                 "reflect-mistake",
                 {"description": mistake, "context": yesterday_str, "suggested_category": "debugging"},
                 "reflect.py",
-                mistake[:60],
+                mistake,
             )
         for problem in buckets["open_problems"]:
             write_proposal(
                 "reflect-mistake",
                 {"description": problem, "context": yesterday_str, "suggested_category": "debugging"},
                 "reflect.py",
-                problem[:60],
+                problem,
             )
         for shortcut in buckets.get("shortcuts", []):
             write_proposal(
                 "reflect-shortcut",
                 {"description": shortcut, "context": yesterday_str, "suggested_category": "snippets"},
                 "reflect.py",
-                shortcut[:60],
+                shortcut,
             )
 
     conn.commit()
