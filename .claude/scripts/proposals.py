@@ -1,14 +1,20 @@
 """proposals.py — Approval-gated proposal queue for the Second Brain system.
 
-CLI: python proposals.py list|approve|reject|defer [<path>]
+CLI: python proposals.py list|approve|reject|defer|auto-approve [<path>]
+
+Auto-approval: reflect-mistake and reflect-shortcut proposals older than
+AUTO_APPROVE_HOURS hours are approved automatically if they have no conflicts.
 """
 from __future__ import annotations
 
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+AUTO_APPROVE_HOURS = 24
+AUTO_APPROVE_TYPES = {"reflect-mistake", "reflect-shortcut"}
 
 import yaml
 
@@ -95,6 +101,47 @@ def write_proposal(type: str, payload: dict[str, Any], proposed_by: str, body: s
 
 # ── approve dispatch ───────────────────────────────────────────────────────────
 
+def _execute_codeburn_commands(commands: list) -> None:
+    import shutil as _shutil
+    import re as _re
+    claude_md = Path.home() / ".claude" / "CLAUDE.md"
+
+    for cmd in commands:
+        cmd = cmd.strip()
+        if not cmd:
+            continue
+
+        mv_match = _re.match(r"^mv\s+(\S+)\s+(\S+)$", cmd)
+        if mv_match:
+            src = Path(mv_match.group(1)).expanduser()
+            dst = Path(mv_match.group(2)).expanduser()
+            try:
+                if src.exists():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    _shutil.move(str(src), str(dst))
+                    print(f"  Moved: {src.name} -> {dst.parent.name}/")
+                else:
+                    print(f"  Skip (not found): {src}")
+            except Exception as exc:
+                print(f"  Move failed {src}: {exc}")
+            continue
+
+        if _re.match(r"^export\s+\w+=", cmd):
+            print(f"  Note (set manually in shell profile): {cmd}")
+            continue
+
+        # Prose → append to ~/.claude/CLAUDE.md if not already present
+        if claude_md.exists():
+            existing = claude_md.read_text(encoding="utf-8")
+            if cmd not in existing:
+                claude_md.write_text(
+                    existing.rstrip() + f"\n\n{cmd}\n", encoding="utf-8"
+                )
+                print(f"  Added to CLAUDE.md: {cmd[:80]}")
+            else:
+                print(f"  Already in CLAUDE.md: {cmd[:60]}")
+
+
 def _approve(fm: dict) -> None:
     p, t, today = fm.get("payload", {}), fm.get("type", ""), date.today().isoformat()
 
@@ -136,11 +183,29 @@ def _approve(fm: dict) -> None:
                          p.get("content", ""))
         _index(dest)
 
+    elif t == "reflect-shortcut":
+        cat = p.get("suggested_category", "snippets")
+        dest = _write_md(_VAULT / "Memory" / cat / f"{today}_shortcut_{_slugify(p.get('description',''))}.md",
+                         f"type: shortcut\ncategory: {cat!r}\n", p.get("description", ""))
+        _index(dest)
+
     elif t == "agent-session-log":
         agent = p.get("agent_name", "agent")
         dest = _write_md(_VAULT / "Sessions" / f"{today}_{agent}.md",
                          f"agent: {agent!r}\noutcome: {p.get('outcome','')!r}\n",
                          f"## Summary\n{p.get('summary','')}\n\n## Lessons\n{p.get('lessons','')}")
+        _index(dest)
+
+    elif t == "codeburn-suggestion":
+        _execute_codeburn_commands(p.get("commands") or [])
+        title = p.get("title", "optimization")
+        cmds = p.get("commands", [])
+        cmd_block = ("\n\n### Commands\n```\n" + "\n".join(cmds) + "\n```") if cmds else ""
+        dest = _write_md(
+            _VAULT / "Memory" / "snippets" / f"{today}_codeburn_{_slugify(title)}.md",
+            f"type: codeburn-suggestion\npriority: {p.get('priority', 'Medium')!r}\n",
+            f"## {title}\n\n{p.get('description', '')}\n\nSavings: {p.get('savings', '')}{cmd_block}",
+        )
         _index(dest)
 
     else:
@@ -183,15 +248,43 @@ def cmd_reject(path: Path) -> None:
 def cmd_defer(path: Path) -> None:
     print(f"Deferred: {path}")
 
+def cmd_auto_approve() -> None:
+    """Auto-approve low-risk proposals older than AUTO_APPROVE_HOURS hours."""
+    if not _PROPOSALS_DIR.exists():
+        print("No proposals directory.")
+        return
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=AUTO_APPROVE_HOURS)
+    approved = 0
+    for f in sorted(_PROPOSALS_DIR.glob("*.md")):
+        text = f.read_text(encoding="utf-8")
+        if "pending-review" not in text:
+            continue
+        fm, _ = _parse(f)
+        if fm.get("type") not in AUTO_APPROVE_TYPES:
+            continue
+        proposed_at_str = fm.get("proposed_at", "")
+        try:
+            proposed_at = datetime.fromisoformat(proposed_at_str.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+        if proposed_at > cutoff:
+            continue
+        print(f"Auto-approving: {f.name}")
+        cmd_approve(f)
+        approved += 1
+    print(f"Auto-approved {approved} proposal(s).")
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Manage approval-gated proposals")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list")
+    sub.add_parser("auto-approve")
     for cmd in ("approve", "reject", "defer"):
         sub.add_parser(cmd).add_argument("path", type=Path)
     args = parser.parse_args()
-    {"list": cmd_list, "approve": lambda: cmd_approve(args.path),
+    {"list": cmd_list, "auto-approve": cmd_auto_approve,
+     "approve": lambda: cmd_approve(args.path),
      "reject": lambda: cmd_reject(args.path), "defer": lambda: cmd_defer(args.path)}[args.command]()
 
 if __name__ == "__main__":

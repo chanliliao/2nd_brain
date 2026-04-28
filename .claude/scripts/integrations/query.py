@@ -4,8 +4,6 @@ Usage:
   python query.py github prs
   python query.py github issues
   python query.py github diff OWNER/REPO PR_NUMBER
-  python query.py calendar upcoming [--hours N]
-  python query.py calendar today
   python query.py help
 """
 import sys
@@ -15,10 +13,9 @@ from integrations.registry import get, is_registered, list_registered
 def main(args: list[str]) -> None:
     """Dispatch to the correct integration CLI based on args[0].
 
-    args[0]: integration name ("github", "calendar")
+    args[0]: integration name ("github")
     args[1:]: passed through to that integration's cli_dispatch()
 
-    "calendar" maps to the "gcal" registry entry.
     "help" prints usage listing all registered integrations.
     No args: print usage.
 
@@ -35,16 +32,13 @@ def main(args: list[str]) -> None:
         _print_usage()
         return
 
-    # Map "calendar" CLI alias to "gcal" registry entry
-    registry_name = "gcal" if command == "calendar" else command
-
-    if not is_registered(registry_name):
+    if not is_registered(command):
         print(f"Error: Unknown integration '{command}'", file=sys.stderr)
         print()
         _print_usage()
         sys.exit(1)
 
-    integration = get(registry_name)
+    integration = get(command)
     if integration is None:
         print(
             f"Error: Integration '{command}' is registered but failed to load. "
@@ -68,10 +62,8 @@ def _print_usage() -> None:
     """Print the module docstring and list registered integrations."""
     print(__doc__)
     print("\nRegistered integrations:")
-    registered = list_registered()
-    for name in registered:
-        alias = "calendar" if name == "gcal" else name
-        print(f"  {alias}")
+    for name in list_registered():
+        print(f"  {name}")
 
 
 if __name__ == "__main__":

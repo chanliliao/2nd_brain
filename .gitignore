@@ -4,7 +4,21 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
-.claude/data/memory.sqlite
-.claude/data/secrets/
-.claude/data/logs/
-.claude/data/state/
+
+# Runtime state — never commit
+data/
+.claude/data/
+.claude/venv/
+.claude/settings.local.json
+
+# MCP client config has bearer token
+.claude/mcp.json
+
+# Regenerable outputs
+graphify-out/
+
+# Auto-generated session state
+vault/Sessions/.llmwiki.yaml
+
+# Claude Code task runtime state
+.claude/tasks/

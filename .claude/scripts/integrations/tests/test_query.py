@@ -10,13 +10,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))  # .claude/scripts
 from integrations.query import main
 
 
-def test_calendar_routes_to_gcal_dispatch():
-    """Verify that 'calendar' maps to gcal registry entry."""
-    with patch("integrations.gcal.cli_dispatch") as mock_dispatch:
-        main(["calendar", "today"])
-        mock_dispatch.assert_called_once_with(["today"])
-
-
 def test_github_routes_to_github_dispatch():
     """Verify that 'github' command routes to github.cli_dispatch."""
     with patch("integrations.github.cli_dispatch") as mock_dispatch:
@@ -73,8 +66,3 @@ def test_multiple_args_passed_through():
         mock_dispatch.assert_called_once_with(["diff", "owner/repo", "42"])
 
 
-def test_calendar_upcoming_with_hours():
-    """Verify calendar integration with flags."""
-    with patch("integrations.gcal.cli_dispatch") as mock_dispatch:
-        main(["calendar", "upcoming", "--hours", "48"])
-        mock_dispatch.assert_called_once_with(["upcoming", "--hours", "48"])

@@ -1,6 +1,6 @@
 ﻿"""
 conftest.py — adds the .claude/scripts directory to sys.path so that
-`from integrations.gcal import ...` works in all tests.
+integration modules are importable in all tests.
 """
 import sys
 from pathlib import Path

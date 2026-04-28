@@ -5,7 +5,11 @@ All writes go through a proposal queue; nothing lands in memory without approval
 
 from __future__ import annotations
 
+import argparse
+import ipaddress
+import os
 import re
+import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -131,8 +135,115 @@ def log_agent_session(
 
 
 # ---------------------------------------------------------------------------
+# HTTP server helpers
+# ---------------------------------------------------------------------------
+
+_TAILSCALE_RANGE = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _is_tailscale(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip) in _TAILSCALE_RANGE
+    except ValueError:
+        return False
+
+
+def _resolve_tailscale_ip(host_arg: str | None) -> str:
+    try:
+        if host_arg is not None:
+            if _is_tailscale(host_arg):
+                return host_arg
+            print(f"Refusing to bind: {host_arg!r} is not a Tailscale IP (100.64.0.0/10).", file=sys.stderr)
+            sys.exit(3)
+
+        bind_ip = os.environ.get("MCP_BIND_IP")
+        if bind_ip:
+            if _is_tailscale(bind_ip):
+                return bind_ip
+            print(f"Refusing to bind: {bind_ip!r} is not a Tailscale IP (100.64.0.0/10).", file=sys.stderr)
+            sys.exit(3)
+
+        result = subprocess.run(
+            [r"C:\Program Files\Tailscale\tailscale.exe", "ip", "--4"],
+            capture_output=True, text=True, timeout=5
+        )
+        bind_ip = result.stdout.strip().splitlines()[0].strip() if result.returncode == 0 else ""
+
+        if bind_ip and _is_tailscale(bind_ip):
+            return bind_ip
+
+        print("Refusing to bind: no Tailscale IP detected. Is Tailscale running?", file=sys.stderr)
+        sys.exit(3)
+
+    except (subprocess.TimeoutExpired, OSError):
+        print("Refusing to bind: could not query Tailscale (is it installed?).", file=sys.stderr)
+        sys.exit(3)
+
+
+def _run_http(host: str | None, port: int) -> None:
+    import uvicorn
+    from starlette.applications import Starlette
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    from auth_middleware import BearerAuthMiddleware, Lockout  # type: ignore
+
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("project_secrets", _SCRIPTS_DIR / "secrets.py")
+    _sm = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_sm)
+    secure_read_token = _sm.secure_read_token
+
+    token_data = secure_read_token("mcp_bearer")
+    if not token_data or "token" not in token_data:
+        print(
+            "ERROR: No MCP bearer token found.\n"
+            "Run: python .claude/scripts/mcp_bootstrap_token.py",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    expected_token: str = token_data["token"]
+    bind_ip = _resolve_tailscale_ip(host)
+
+    # Allow the Tailscale IP as a valid Host header value.
+    # DNS rebinding via Tailscale IPs is not a realistic attack vector;
+    # Tailscale mesh + bearer token already handle access control.
+    from mcp.server.transport_security import TransportSecuritySettings
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[f"{bind_ip}:*"],
+        allowed_origins=[f"http://{bind_ip}:*"],
+    )
+
+    lockout = Lockout()
+    http_app = mcp.streamable_http_app()
+    app = Starlette(
+        routes=http_app.routes,
+        middleware=[],
+        lifespan=http_app.router.lifespan_context,
+    )
+    app.add_middleware(BearerAuthMiddleware, expected_token=expected_token, lockout=lockout)
+
+    print(f"Starting MCP HTTP server on http://{bind_ip}:{port}/mcp", flush=True)
+    uvicorn.run(app, host=bind_ip, port=port, log_level="info")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Second Brain MCP Server")
+    parser.add_argument("--serve", action="store_true", help="Run HTTP server (Tailscale only)")
+    parser.add_argument("--host", default=None, help="Bind IP override (must be Tailscale 100.x.x.x)")
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args()
+
+    if args.serve:
+        _run_http(args.host, args.port)
+    else:
+        mcp.run(transport="stdio")
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    main()

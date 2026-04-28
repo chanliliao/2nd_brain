@@ -10,7 +10,6 @@ them into the application.
 
 Pre-registered integrations (built-in):
   - github: GitHub issues and PRs integration
-  - gcal: Google Calendar events integration
 """
 
 import importlib
@@ -105,6 +104,3 @@ def is_registered(name: str) -> bool:
 
 # GitHub: Issues and pull requests integration
 register("github", "integrations.github")
-
-# Google Calendar: Calendar and events integration
-register("gcal", "integrations.gcal")

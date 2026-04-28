@@ -13,10 +13,7 @@ _PROJECT_ROOT_FALLBACK = Path(__file__).parent.parent
 STATE_PATH = _PROJECT_ROOT_FALLBACK / "data" / "state" / "heartbeat-state.json"
 
 
-def build_snapshot(
-    github_prs: list[dict],
-    calendar_events: list[dict],
-) -> dict:
+def build_snapshot(github_prs: list[dict]) -> dict:
     """Return a JSON-serialisable snapshot of current integration state."""
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -25,11 +22,6 @@ def build_snapshot(
             for pr in github_prs
             if "repo" in pr and "number" in pr
         },
-        "calendar": [
-            e.get("id", e.get("summary", ""))
-            for e in calendar_events
-            if "error" not in e
-        ],
     }
 
 
@@ -66,12 +58,5 @@ def diff_snapshot(old: dict, new: dict) -> dict:
     new_pr_keys = [k for k in new_prs if k not in old_prs]
     if new_pr_keys:
         changes["github"] = {"new_prs": new_pr_keys}
-
-    # Calendar: new event IDs/summaries
-    old_cal = set(old.get("calendar", []))
-    new_cal = set(new.get("calendar", []))
-    new_events = list(new_cal - old_cal)
-    if new_events:
-        changes["calendar"] = {"new_events": new_events}
 
     return changes

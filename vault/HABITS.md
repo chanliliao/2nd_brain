@@ -18,7 +18,7 @@ Reset daily at midnight. Weekly streaks tracked in `weekly/` rollups.
   - *Tag:* `#habit/ai-study`
 
 - [ ] **Job Hunt** — ≥1 application or recruiter touchpoint
-  - *Auto-detected via:* Gmail job-related threads + `vault/Memory/job-hunt/` new entries
+  - *Auto-detected via:* `vault/Memory/job-hunt/` new entries
   - *Tag:* `#habit/job-hunt`
 
 - [ ] **Reflection** — End-of-day daily log written

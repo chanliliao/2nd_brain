@@ -37,10 +37,25 @@ def read_transcript(path: Path) -> str:
             except json.JSONDecodeError:
                 continue
 
+            # Actual Claude Code JSONL format: role/content nested in entry["message"]
+            msg = entry.get("message")
+            if isinstance(msg, dict):
+                role = msg.get("role", "")
+                if role in ("assistant", "user"):
+                    content = msg.get("content", "")
+                    if isinstance(content, str) and content.strip():
+                        lines.append(f"[{role}]: {content[:500]}")
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text.strip():
+                                    lines.append(f"[{role}]: {text[:500]}")
+                continue
+
+            # Fallback: flat format (role at top level)
             role = entry.get("role", "")
             entry_type = entry.get("type", "")
-
-            # Extract text from assistant and user messages
             if role in ("assistant", "user"):
                 content = entry.get("content", "")
                 if isinstance(content, str):
@@ -49,8 +64,6 @@ def read_transcript(path: Path) -> str:
                     for block in content:
                         if isinstance(block, dict) and block.get("type") == "text":
                             lines.append(f"[{role}]: {block.get('text', '')[:500]}")
-
-            # Extract short tool result entries for context about what was done
             elif role == "tool" or entry_type == "tool_result":
                 content = entry.get("content", "")
                 if isinstance(content, str) and len(content) < 200:

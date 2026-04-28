@@ -1,92 +1,172 @@
-# Phase 2 — Hook Dependencies Install Guide
+# Second Brain — Setup Guide
+
+Run these steps on **any machine** you clone this repo to.
+
+---
 
 ## Prerequisites
-- Python 3.10+ at `C:\Users\cliao\AppData\Local\Programs\Python\Python313\python.exe`
-- Claude Code CLI installed and in PATH
-- Node.js 18+ and npm (for codeburn, Phase 9)
 
-## 1. Python dependencies (hook scripts)
+- Windows 10+
+- Python 3.10+ (installed at system level)
+- Node.js 18+ and npm
+- Claude Code CLI (`claude`)
+- Tailscale (for Computer 2 MCP access)
 
-The three hook scripts (`session-start-context.py`, `pre-compact-flush.py`, `session-end-flush.py`) require the `anthropic` Python package.
+---
 
+## 1. Clone repo
+
+```bash
+git clone <repo-url> C:\Users\<you>\Desktop\2nd_Brain
+cd C:\Users\<you>\Desktop\2nd_Brain
 ```
-pip install anthropic
-```
 
-Or install into a venv (recommended for isolation):
-```
+---
+
+## 2. Python venv
+
+```powershell
 python -m venv .claude\venv
 .claude\venv\Scripts\activate
-pip install anthropic
+pip install -r .claude\requirements.txt
 ```
 
-If using a venv, update the Python command in `.claude\settings.json` from `python` to the venv path:
-```
-C:\Users\cliao\Desktop\2nd_Brain\.claude\venv\Scripts\python.exe
+**Fix hook paths** — `.claude\settings.json` has hardcoded paths to Computer 1's username.
+Find/replace `cliao` with your Windows username in that file before opening Claude Code.
+
+---
+
+## 3. Codeburn (token usage tracking)
+
+```bash
+npm install -g codeburn
 ```
 
-## 2. claude-mem (session telemetry memory)
+Verify: `codeburn stats`
 
-Plugin — AGPL-3.0. Acceptable for personal use.
+---
 
-Install via Claude Code plugin marketplace:
+## 4. RTK (token reduction proxy)
+
+Install the `rtk` binary (Rust Token Killer). Get it from your existing Computer 1 installation:
+
+```bash
+# On Computer 1 — find the binary
+which rtk
+
+# Copy to Computer 2 or reinstall via cargo:
+cargo install rtk
 ```
+
+After install, configure the Claude Code hook in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "rtk intercept" }]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 5. Claude Code plugins
+
+```bash
+claude plugin marketplace add JuliusBrussee/caveman
+claude plugin install caveman@caveman
+
 claude plugin marketplace add thedotmack/claude-mem
 claude plugin install claude-mem
-```
 
-Requires:
-- Bun runtime (auto-installed by claude-mem)
-- Port 37777 must be free
-
-Config at: `~/.claude-mem/settings.json`
-
-## 3. llm-wiki (session → wiki pages)
-
-Syncs past session summaries into `vault/Sessions/` as wiki pages.
-
-```
 pip install llm-wiki[all]
 llmwiki install-skills
 ```
 
-After install, `llmwiki sync --quiet` will run on every session start.
+---
 
-## 4. caveman (token compression)
+## 6. MCP — Second Brain server
 
-Plugin — compresses MEMORY.md and CLAUDE.md to save tokens.
+### Computer 1 (vault host) — one-time setup
 
-```
-claude plugin marketplace add JuliusBrussee/caveman
-claude plugin install caveman@caveman
-```
-
-After install, `caveman-session-start` runs on every session start.
-
-## 5. graphify (knowledge graph)
-
-Builds a knowledge graph over the vault.
-
-```
-pip install graphifyy
+```powershell
+# Mint bearer token
+.claude\venv\Scripts\python.exe .claude\scripts\mcp_bootstrap_token.py
+# Save the printed token — shown once only
 ```
 
-Note: The PyPI package name is `graphifyy` (double-y). After install, `graphify-pre-tool` runs before each tool use.
+Register Task Scheduler tasks:
+
+```powershell
+# Run as Administrator
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.claude\deploy\install_tasks.ps1
+```
+
+### Computer 2 — client config
+
+Create `~/.claude/mcp.json` (never commit this file):
+
+```json
+{
+  "mcpServers": {
+    "second-brain": {
+      "type": "streamable-http",
+      "url": "http://100.79.45.68:8765/mcp",
+      "headers": { "Authorization": "Bearer <paste-token-from-step-above>" }
+    }
+  }
+}
+```
+
+The URL is Computer 1's Tailscale IP. Check it with: `tailscale ip --4` on Computer 1.
+
+---
+
+## 7. What runs WHERE
+
+| Feature | Computer 1 | Computer 2 |
+|---|---|---|
+| Nightly dream pipeline | YES (Task Scheduler 4am) | NO — never register tasks |
+| Vault writes | Local + git push | Via MCP → Computer 1 proposals queue |
+| Vault reads | Local | `git pull` or MCP `search_memory` |
+| Codeburn stats | YES | YES (tracks its own sessions) |
+| RTK token reduction | YES | YES |
+| Claude Code plugins | YES | YES |
+
+**Single source of truth**: vault lives on Computer 1, replicated to GitHub as backup.
+Computer 2 syncs via `git pull`. Both machines push vault changes via normal git workflow.
+
+---
+
+## 8. Vault sync workflow (two computers)
+
+```bash
+# Before working on Computer 2:
+git pull
+
+# After working on Computer 2:
+git add vault/
+git commit -m "chore: vault sync $(date +%Y-%m-%d)"
+git push
+
+# On Computer 1 — pick up Computer 2 changes:
+git pull
+```
+
+No merge conflicts if only one computer edits the same file at a time.
+
+---
 
 ## Verification
 
-After installing all dependencies, open a new Claude Code session in this project. You should see:
-1. A `<memory>` block injected at the start of the first turn (from `session-start-context.py`)
-2. No hook failure warnings in the session header
-
-To test the hooks manually:
-```
-# Test session-start-context
-python C:\Users\cliao\Desktop\2nd_Brain\.claude\hooks\session-start-context.py
-
-# Test pre-compact (empty transcript)
-echo {} | python C:\Users\cliao\Desktop\2nd_Brain\.claude\hooks\pre-compact-flush.py
-
-# Test session-end (empty transcript)
-echo {} | python C:\Users\cliao\Desktop\2nd_Brain\.claude\hooks\session-end-flush.py
-```
+Open Claude Code on Computer 2 in this project. You should see:
+1. Memory block injected at session start
+2. `mcp__second-brain__*` tools available
+3. `codeburn stats` shows session data
+4. `rtk gain` shows token savings

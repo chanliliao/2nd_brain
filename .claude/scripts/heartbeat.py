@@ -2,10 +2,10 @@
 Heartbeat orchestrator for Henry's Second Brain.
 
 Runs every 30 min during active hours (8AM-10PM Eastern).
-Gathers data from GitHub and Google Calendar; diffs against the last
-state snapshot; calls Haiku for a structured analysis; auto-detects habit
-completions; sends a Windows Toast notification on deltas; and writes an
-action summary to today's daily log + HEARTBEAT.md.
+Gathers data from GitHub; diffs against the last state snapshot; calls Haiku
+for a structured analysis; auto-detects habit completions; sends a Windows
+Toast notification on deltas; and writes an action summary to today's daily
+log + HEARTBEAT.md.
 
 Usage:
     python heartbeat.py [--once] [--force] [--vault PATH] [--db PATH]
@@ -98,15 +98,6 @@ def _gather_github() -> list[dict]:
         return [{"error": str(exc)}]
 
 
-def _gather_calendar() -> list[dict]:
-    _add_scripts_to_path()
-    try:
-        from integrations.gcal import GCalConfig, upcoming
-        return upcoming(GCalConfig.from_env(), hours=2)
-    except Exception as exc:
-        return [{"error": str(exc)}]
-
-
 def _gather_codeburn() -> str:
     try:
         result = subprocess.run(
@@ -142,7 +133,7 @@ Analyze the provided JSON snapshot and produce a JSON object with exactly these 
 
 Rules:
 - Prioritise delta information from the "diff" key — only surface new/changed items.
-- If diff is empty or {"first_run": true} with no notable integrations data, set notification_title to "".
+- If diff is empty or {"first_run": true} with no notable GitHub data, set notification_title to "".
 - draft_prs: only include new PRs from diff.github.new_prs.
 - Output ONLY valid JSON — no markdown fences, no extra text.
 """
@@ -150,7 +141,6 @@ Rules:
 
 def _analyze(
     github: list[dict],
-    calendar: list[dict],
     codeburn: str,
     diff: dict,
     habits: dict[str, bool],
@@ -164,10 +154,6 @@ def _analyze(
                 for p in github[:5]
                 if "error" not in p
             ],
-        },
-        "calendar": {
-            "upcoming_count": len([e for e in calendar if "error" not in e]),
-            "events_preview": [e.get("summary", "?") for e in calendar[:3] if "error" not in e],
         },
         "codeburn": codeburn,
         "diff": diff,
@@ -244,7 +230,6 @@ def _write_heartbeat_md(
     analysis: dict,
     habits: dict[str, bool],
     github_count: int,
-    cal_count: int,
 ) -> None:
     heartbeat_path = vault_root / "HEARTBEAT.md"
     try:
@@ -263,7 +248,6 @@ def _write_heartbeat_md(
         "",
         "## Integration Snapshot",
         f"- GitHub PRs needing attention: {github_count}",
-        f"- Calendar events (next 2h): {cal_count}",
         "",
         "## Habits Today",
         *habit_lines,
@@ -325,19 +309,27 @@ def run_heartbeat(
 
     logger.info("=== Heartbeat start ===")
 
+    # Ensure today's daily log exists (scaffold only — never overwrite)
+    today_str = date.today().strftime("%Y-%m-%d")
+    today_log = vault_root / "daily" / f"{today_str}.md"
+    if not today_log.exists():
+        today_log.parent.mkdir(parents=True, exist_ok=True)
+        today_log.write_text(
+            f"# {today_str}\n\n## Today's Focus\n\n## Work Log\n\n## Reflection\n\n",
+            encoding="utf-8",
+        )
+        logger.info(f"Created daily log scaffold: {today_str}.md")
+
     # Gather integration data
     logger.info("Gathering GitHub…")
     github = _gather_github()
-
-    logger.info("Gathering Calendar…")
-    calendar = _gather_calendar()
 
     codeburn = _gather_codeburn()
     logger.info(f"Codeburn: {codeburn}")
 
     # State diff — skip LLM + notification if nothing changed (unless --force)
     old_state = load_state(state_path)
-    new_snapshot = build_snapshot(github, calendar)
+    new_snapshot = build_snapshot(github)
     diff = diff_snapshot(old_state, new_snapshot)
 
     if not diff and not force:
@@ -351,7 +343,7 @@ def run_heartbeat(
     logger.info(f"Habits: {habits}")
 
     # LLM analysis
-    analysis = _analyze(github, calendar, codeburn, diff, habits, logger)
+    analysis = _analyze(github, codeburn, diff, habits, logger)
     logger.info(f"Analysis: title='{analysis.get('notification_title', '')}' "
                 f"draft_prs={analysis.get('draft_prs', [])}")
 
@@ -374,10 +366,9 @@ def run_heartbeat(
 
     # Update HEARTBEAT.md
     github_ok = [p for p in github if "error" not in p]
-    cal_ok = [e for e in calendar if "error" not in e]
     _write_heartbeat_md(
         vault_root, run_dt, analysis, habits,
-        len(github_ok), len(cal_ok),
+        len(github_ok),
     )
 
     # Persist new state

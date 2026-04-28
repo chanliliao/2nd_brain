@@ -71,11 +71,12 @@ def _extract_facts(log_content: str) -> dict:
 
     system = "You are a memory extraction assistant for a personal second brain."
     user = (
-        "Extract information from this daily log into three categories.\n"
+        "Extract information from this daily log into four categories.\n"
         "Output ONLY a valid JSON object with exactly these keys:\n"
         '  "facts": list of strings (decisions, learnings, preferences — max 15)\n'
         '  "mistakes": list of strings (errors made, wrong assumptions — max 5)\n'
         '  "open_problems": list of strings (unresolved issues, blockers — max 5)\n'
+        '  "shortcuts": list of strings (approaches that worked well, time-savers, successful patterns — max 5)\n'
         "No other text.\n\nDaily log:\n" + log_content
     )
 
@@ -91,10 +92,11 @@ def _extract_facts(log_content: str) -> dict:
                 "facts": [str(f) for f in result.get("facts", [])],
                 "mistakes": [str(m) for m in result.get("mistakes", [])],
                 "open_problems": [str(p) for p in result.get("open_problems", [])],
+                "shortcuts": [str(s) for s in result.get("shortcuts", [])],
             }
     except json.JSONDecodeError as exc:
         print(f"[reflect] WARNING: JSON parse error in fact extraction: {exc}", file=sys.stderr)
-    return {"facts": [], "mistakes": [], "open_problems": []}
+    return {"facts": [], "mistakes": [], "open_problems": [], "shortcuts": []}
 
 
 # --------------------------------------------------------------------------- #
@@ -347,7 +349,7 @@ def run_reflection(
     category_ids = _load_category_ids(vault_root)
 
     buckets = _extract_facts(log_content)
-    facts_extracted = len(buckets["facts"]) + len(buckets["mistakes"]) + len(buckets["open_problems"])
+    facts_extracted = len(buckets["facts"]) + len(buckets["mistakes"]) + len(buckets["open_problems"]) + len(buckets.get("shortcuts", []))
 
     # ---------------------------------------------------------------------- #
     # Step 3 — Categorize facts (Sonnet)                                      #
@@ -428,6 +430,13 @@ def run_reflection(
                 "reflect.py",
                 problem[:60],
             )
+        for shortcut in buckets.get("shortcuts", []):
+            write_proposal(
+                "reflect-shortcut",
+                {"description": shortcut, "context": yesterday_str, "suggested_category": "snippets"},
+                "reflect.py",
+                shortcut[:60],
+            )
 
     conn.commit()
     conn.close()
@@ -443,6 +452,20 @@ def run_reflection(
         facts_categorized,
         facts_written,
         all_conflicts,
+    )
+
+    # ---------------------------------------------------------------------- #
+    # Step 8 — Rebuild llmwiki session index                                  #
+    # ---------------------------------------------------------------------- #
+    import subprocess as _subprocess
+    yesterday_str_for_wiki = yesterday.strftime("%Y-%m-%d")
+    _subprocess.run(
+        [
+            "llmwiki", "index", "add",
+            f"sessions/{yesterday_str_for_wiki}.md",
+            f"Session {yesterday_str_for_wiki}: nightly reflect pass",
+        ],
+        capture_output=True,
     )
 
     return {

@@ -1,21 +1,19 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2026-04-24T00:00:00</Date>
+    <Date>2026-04-26T00:00:00</Date>
     <Author>cliao</Author>
-    <URI>\SecondBrain - Weekly Compact</URI>
+    <Description>Second Brain — auto-approve low-risk proposals 15 min after nightly reflect.</Description>
+    <URI>\SecondBrain - Auto-Approve Proposals</URI>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-04-24T20:00:00</StartBoundary>
-      <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+      <StartBoundary>2026-04-26T04:15:00</StartBoundary>
+      <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
       <Enabled>true</Enabled>
-      <ScheduleByWeek>
-        <WeeksInterval>1</WeeksInterval>
-        <DaysOfWeek>
-          <Sunday />
-        </DaysOfWeek>
-      </ScheduleByWeek>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
     </CalendarTrigger>
   </Triggers>
   <Principals>
@@ -40,13 +38,13 @@
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
     <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">
     <Exec>
       <Command>C:\Users\cliao\Desktop\2nd_Brain\.claude\venv\Scripts\python.exe</Command>
-      <Arguments>.claude\scripts\memory\compact.py weekly</Arguments>
+      <Arguments>C:\Users\cliao\Desktop\2nd_Brain\.claude\scripts\proposals.py auto-approve</Arguments>
       <WorkingDirectory>C:\Users\cliao\Desktop\2nd_Brain</WorkingDirectory>
     </Exec>
   </Actions>
