@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """SessionEnd hook: write session summary to daily log."""
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -79,7 +80,7 @@ def read_transcript(path: Path) -> str:
 
 
 def already_has_session_summary() -> bool:
-    """Return True if today's daily log already contains a Session Summary section."""
+    """Return True if today's daily log already contains a claude session header."""
     daily_path = get_today_daily_path()
     if not daily_path.exists():
         return False
@@ -87,10 +88,9 @@ def already_has_session_summary() -> bool:
         existing = daily_path.read_text(encoding="utf-8")
     except OSError:
         return False
-    return (
-        "\n## Session Summary\n" in existing
-        or existing.startswith("## Session Summary\n")
-    )
+    today = datetime.date.today().isoformat()
+    marker = f"## {today}-claude"
+    return marker in existing
 
 
 def main() -> None:
@@ -123,7 +123,8 @@ def main() -> None:
     summary = extract_facts_with_haiku(transcript_text, SUMMARY_PROMPT)
 
     if summary.strip():
-        append_to_daily_log(summary, section_header="## Session Summary")
+        today = datetime.date.today().isoformat()
+        append_to_daily_log(summary, section_header=f"## {today}-claude")
 
 
 if __name__ == "__main__":

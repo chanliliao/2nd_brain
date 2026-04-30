@@ -16,7 +16,7 @@ Install: Claude plugin (installed via `claude plugin install`). Activates automa
 
 **Automatic triggers (called by other scripts):**
 - `session-start-context.py` — if context budget (SOUL + USER + MEMORY + 3 daily logs) exceeds ~2000 tokens, compress MEMORY.md before injecting
-- `reflect.py` — after appending to MEMORY.md, if file exceeds ~3000 words, compress it
+- `dream.py` — after appending to MEMORY.md, if file exceeds ~3000 words, compress it
 
 **Manual trigger:**
 - Henry says "compress my memory file", "MEMORY.md is getting too big", or `/caveman-compress`

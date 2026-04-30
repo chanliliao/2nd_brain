@@ -363,28 +363,25 @@ def _append_to_category_file(
 # --------------------------------------------------------------------------- #
 
 def _update_projects_md(vault_root: Path) -> None:
-    """Rebuild vault/PROJECTS.md as a high-level summary of vault/Memory/projects.md."""
-    projects_mem = vault_root / "Memory" / "projects.md"
-    if not projects_mem.exists():
+    """Rebuild vault/PROJECTS.md as a summary by scanning vault/Memory/projects/*.md."""
+    projects_dir = vault_root / "Memory" / "projects"
+    if not projects_dir.exists():
         return
 
-    text = projects_mem.read_text(encoding="utf-8")
-    sections = re.split(r'\n## ', text)
-
     lines = ["# Projects — Henry Liao", ""]
-    for section in sections[1:]:
-        section_lines = section.strip().split('\n')
-        project_name = section_lines[0].strip()
-        # First non-empty content line as summary, stripped of list markers
+    for project_file in sorted(projects_dir.glob("*.md")):
+        text = project_file.read_text(encoding="utf-8")
+        file_lines = text.splitlines()
+        # H1 = project name, first non-empty non-header line = summary
+        name = next((l.lstrip("# ").strip() for l in file_lines if l.startswith("# ")), project_file.stem)
         summary = next(
-            (l.strip().lstrip('- ').split('.')[0] for l in section_lines[1:] if l.strip()),
+            (l.strip().lstrip("- ").split(".")[0] for l in file_lines if l.strip() and not l.startswith("#")),
             ""
         )
-        if project_name:
-            lines.append(f"## {project_name}")
-            if summary:
-                lines.append(summary)
-            lines.append("")
+        lines.append(f"## {name}")
+        if summary:
+            lines.append(summary)
+        lines.append("")
 
     (vault_root / "PROJECTS.md").write_text("\n".join(lines), encoding="utf-8")
 
@@ -546,18 +543,20 @@ def run_reflection(
     # ---------------------------------------------------------------------- #
     # Step 1 — Read sources                                                    #
     # ---------------------------------------------------------------------- #
-    daily_log_path = vault_root / "daily" / f"{yesterday.strftime('%Y-%m-%d')}.md"
+    date_str = yesterday.strftime('%Y-%m-%d')
+    daily_dir = vault_root / "daily"
+    # Collect base log + any source-tagged logs (e.g. YYYY-MM-DD-codex-jarvis.md)
+    daily_files = sorted(daily_dir.glob(f"{date_str}*.md"))
 
-    if not daily_log_path.exists():
+    if not daily_files:
         print(
-            f"[reflect] No daily log found for {yesterday.strftime('%Y-%m-%d')}, "
-            f"skipping reflection.",
+            f"[reflect] No daily log found for {date_str}, skipping reflection.",
             file=sys.stderr,
         )
         _write_heartbeat(vault_root, run_dt, yesterday, 0, 0, 0, [])
         return zero_result
 
-    log_content = daily_log_path.read_text(encoding="utf-8")
+    log_content = "\n\n".join(f.read_text(encoding="utf-8") for f in daily_files)
     _ = (vault_root / "HEARTBEAT.md").exists()
 
     # ---------------------------------------------------------------------- #
@@ -595,8 +594,9 @@ def run_reflection(
         index_file(path, vault_root, conn)
     conn.commit()
 
-    # Rebuild PROJECTS.md if any facts went to the projects category
-    if any(item["category"] == "projects" for item in surviving):
+    # Rebuild PROJECTS.md if any facts went to a project category
+    _project_categories = {f.stem for f in (vault_root / "Memory" / "projects").glob("*.md")} if (vault_root / "Memory" / "projects").exists() else set()
+    if any(item["category"] in _project_categories for item in surviving):
         _update_projects_md(vault_root)
 
     # ---------------------------------------------------------------------- #
@@ -638,7 +638,7 @@ def run_reflection(
                     "new_content": new_row[0] if new_row else "",
                     "reason": conflict["reason"],
                 },
-                "reflect.py",
+                "dream.py",
                 f"Conflict: {conflict['old_id']} vs {conflict['new_id']}",
             )
 
