@@ -1,3 +1,6 @@
+# Personal vault — local only, never commit
+vault/
+
 .worktrees/
 .env
 __pycache__/
