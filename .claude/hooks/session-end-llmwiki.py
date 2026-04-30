@@ -70,12 +70,13 @@ def main() -> None:
     page_path = f"sessions/{date_str}.md"
     content = _wiki_page_content(summary, today)
 
-    # llmwiki write reads from stdin
+    # llmwiki write reads from stdin (shell=True needed on Windows for .cmd wrapper)
     result = subprocess.run(
-        ["llmwiki", "write", page_path],
+        f'llmwiki write "{page_path}"',
         input=content,
         text=True,
         capture_output=True,
+        shell=True,
     )
     if result.returncode != 0:
         print(f"[llmwiki] write failed: {result.stderr.strip()}", file=sys.stderr)
@@ -84,14 +85,16 @@ def main() -> None:
     # Add to index
     short_summary = summary.split("\n")[0][:80]
     subprocess.run(
-        ["llmwiki", "index", "add", page_path, f"Session {date_str}: {short_summary}"],
+        f'llmwiki index add "{page_path}" "Session {date_str}: {short_summary}"',
         capture_output=True,
+        shell=True,
     )
 
     # Append to activity log
     subprocess.run(
-        ["llmwiki", "log", "append", "session", f"Session summary written: {date_str}"],
+        f'llmwiki log append session "Session summary written: {date_str}"',
         capture_output=True,
+        shell=True,
     )
 
 

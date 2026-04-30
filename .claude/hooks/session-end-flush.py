@@ -13,14 +13,18 @@ from hooks.shared import (
     get_today_daily_path,
 )
 
-SUMMARY_PROMPT = """From this Claude Code session transcript, write a concise session summary:
+SUMMARY_PROMPT = """From this Claude Code session transcript, write a concise session summary covering ALL of:
 - What was worked on (project name, feature, or task)
 - Key decisions or approaches chosen
 - Files created or modified (list them)
 - What was completed vs what's still in progress
 - Any blockers or open questions
+- NEW PROJECTS or ideas discussed (e.g. "Discussed building X", "Initiated Y project")
+- Things Henry asked Claude to create, initiate, or set up
+- Goals or intentions Henry stated about future work
+- People, tools, or services mentioned as important
 
-Write in first person past tense (Henry's perspective). Max 200 words. Be specific."""
+Write in first person past tense (Henry's perspective). Max 300 words. Be specific — capture project names, tool names, and intent even if not yet implemented."""
 
 MAX_TRANSCRIPT_CHARS = 15000
 

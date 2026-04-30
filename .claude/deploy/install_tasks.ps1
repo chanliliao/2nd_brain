@@ -30,6 +30,7 @@ $tasks = [ordered]@{
     (Join-Path $deployTasksDir 'auto_approve.xml')                        = 'SecondBrain - AutoApprove'
     (Join-Path $deployTasksDir 'compact_weekly.xml')                      = 'SecondBrain - Weekly Compact'
     (Join-Path $deployTasksDir 'prune_weekly.xml')                        = 'SecondBrain - Weekly Prune'
+    (Join-Path $deployTasksDir 'codeburn_weekly.xml')                     = 'SecondBrain - Weekly Codeburn'
     (Join-Path $deployTasksDir 'monthly_rollup.xml')                      = 'SecondBrain - Monthly Rollup'
     (Join-Path $extraTasksDir  'SecondBrain-ClaudeMemBridge.xml')         = 'SecondBrain - ClaudeMemBridge'
     (Join-Path $deployTasksDir 'mcp_server.xml')                          = 'SecondBrain - MCP Server'

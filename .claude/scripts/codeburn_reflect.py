@@ -114,9 +114,46 @@ def _parse_suggestions(text: str) -> list[dict]:
     return suggestions
 
 
-def _already_decided(title: str) -> bool:
-    """Return True if a proposal with this title was already approved or rejected."""
+def _extract_item_names(commands: list[str]) -> set[str]:
+    """Extract specific item names from mv commands.
+
+    e.g. "mv ~/.claude/agents/changelog-updater.md ~/.claude/agents/.archived/"
+    → "changelog-updater"
+    """
+    items: set[str] = set()
+    for cmd in commands:
+        m = re.search(r'/([^/\s]+?)(?:\.md)?\s', cmd)
+        if m:
+            items.add(m.group(1))
+    return items
+
+
+def _rejected_items(vault: Path) -> set[str]:
+    """Return all item names that appear in rejected proposal commands."""
+    items: set[str] = set()
+    for f in (vault / "rejected").glob("*codeburn-suggestion*.md"):
+        try:
+            text = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        cmds = re.findall(r"- '(mv .+?)'", text)
+        items |= _extract_item_names(cmds)
+    return items
+
+
+def _already_decided(title: str, commands: list[str]) -> bool:
+    """Return True if this proposal was already approved/rejected.
+
+    Two checks:
+    1. Exact title match in approved/ or rejected/.
+    2. Item-level match: if every specific item in this proposal's commands
+       was already mentioned in a rejected proposal, suppress it.
+       Allows future proposals about NEW items of the same type (agents,
+       skills, commands) while blocking re-suggestions of rejected ones.
+    """
     vault = _ROOT / "vault" / "drafts"
+
+    # 1. Exact title match
     for folder in ("approved", "rejected"):
         for f in (vault / folder).glob("*codeburn-suggestion*.md"):
             try:
@@ -125,6 +162,16 @@ def _already_decided(title: str) -> bool:
                     return True
             except OSError:
                 pass
+
+    # 2. Item-level dedup: block if all items in this proposal were previously rejected
+    new_items = _extract_item_names(commands)
+    if new_items:
+        already_rejected = _rejected_items(vault)
+        if new_items <= already_rejected:
+            overlap = new_items & already_rejected
+            print(f"  Skip (items already rejected — {', '.join(sorted(overlap))}): {title[:60]}")
+            return True
+
     return False
 
 
@@ -132,7 +179,7 @@ def _create_proposals(suggestions: list[dict]) -> None:
     from proposals import write_proposal  # type: ignore
 
     for s in suggestions:
-        if _already_decided(s["title"]):
+        if _already_decided(s["title"], s.get("commands", [])):
             print(f"  Skip (already approved/rejected): {s['title'][:60]}")
             continue
         payload = {

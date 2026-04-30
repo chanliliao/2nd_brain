@@ -2,8 +2,8 @@
 Daily reflection pipeline for the personal second-brain.
 
 Runs at 8AM daily. Reads yesterday's daily log, extracts facts with Haiku,
-categorizes them with Sonnet, writes to MEMORY.md, re-indexes, checks conflicts,
-and updates HEARTBEAT.md.
+categorizes them with Sonnet, appends to vault/Memory/<group>/<category>.md,
+appends lessons to vault/RULES.md, and updates HEARTBEAT.md.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ def _find_project_root(start: Path) -> Path:
     for parent in [current, *current.parents]:
         if (parent / ".claude").is_dir():
             return parent
-    # Fallback: use start itself
     return start.resolve()
 
 
@@ -40,44 +39,135 @@ _VAULT_ROOT = _PROJECT_ROOT / "vault"
 # Category parsing                                                              #
 # --------------------------------------------------------------------------- #
 
-def _load_category_ids(vault_root: Path) -> list[str]:
-    """Parse category IDs from vault/Memory/_categories.yml using regex."""
-    categories_path = vault_root / "Memory" / "_categories.yml"
+def _parse_categories_yml(yaml_content: str) -> dict[str, dict]:
+    """Parse _categories.yml into {id: {label, reflection_prompt}} using regex."""
+    result: dict[str, dict] = {}
+    entries = re.split(r'\n\s*-\s+id:', yaml_content)
+    for entry in entries[1:]:
+        id_match = re.match(r'\s*(\S+)', entry)
+        if not id_match:
+            continue
+        cat_id = id_match.group(1)
+
+        label_match = re.search(r'\n\s+label:\s+(.+)', entry)
+        label = label_match.group(1).strip().strip('"\'') if label_match else cat_id.replace('-', ' ').title()
+
+        prompt_match = re.search(r'\n\s+reflection_prompt:\s+"([^"]*)"', entry)
+        if not prompt_match:
+            prompt_match = re.search(r"\n\s+reflection_prompt:\s+'([^']*)'", entry)
+        if not prompt_match:
+            prompt_match = re.search(r'\n\s+reflection_prompt:\s+(.+)', entry)
+        reflection_prompt = (
+            prompt_match.group(1).strip().strip('"\'')
+            if prompt_match
+            else f"Extract facts related to {cat_id}."
+        )
+
+        result[cat_id] = {"label": label, "reflection_prompt": reflection_prompt}
+    return result
+
+
+def _load_categories(vault_root: Path) -> list[dict]:
+    """Discover categories from vault/Memory/ folder structure + _categories.yml metadata.
+
+    Flat .md files in memory_root and .md files in group subdirs are both categories.
+    _categories.yml provides label and reflection_prompt metadata.
+    """
+    memory_root = vault_root / "Memory"
+
+    yml_meta: dict[str, dict] = {}
     try:
-        yaml_content = categories_path.read_text(encoding="utf-8")
-        category_ids = re.findall(r"^\s*-\s*id:\s*(\S+)", yaml_content, re.MULTILINE)
-        if category_ids:
-            return category_ids
+        yaml_content = (memory_root / "_categories.yml").read_text(encoding="utf-8")
+        yml_meta = _parse_categories_yml(yaml_content)
     except FileNotFoundError:
         pass
 
-    # Fallback list
-    return [
-        "coding-projects", "job-hunt", "interview-prep", "career-goals",
-        "tech-stack", "debugging", "snippets", "prompts", "agent-designs",
-        "network", "relationships", "habits", "journal", "health", "finance",
-    ]
+    folder_ids: list[str] = []
+    seen_folder: set[str] = set()
+    if memory_root.exists():
+        # Flat .md files directly in memory root
+        for md_file in sorted(memory_root.glob("*.md")):
+            if not md_file.name.startswith("_"):
+                cat_id = md_file.stem
+                if cat_id not in seen_folder:
+                    folder_ids.append(cat_id)
+                    seen_folder.add(cat_id)
+        # .md files inside group subdirs
+        for item in sorted(memory_root.iterdir()):
+            if not item.is_dir() or item.name.startswith('_'):
+                continue
+            for md_file in sorted(item.glob("*.md")):
+                cat_id = md_file.stem
+                if cat_id not in seen_folder:
+                    folder_ids.append(cat_id)
+                    seen_folder.add(cat_id)
+            for cat_dir in sorted(item.iterdir()):
+                if cat_dir.is_dir() and not cat_dir.name.startswith('_'):
+                    if cat_dir.name not in seen_folder:
+                        folder_ids.append(cat_dir.name)
+                        seen_folder.add(cat_dir.name)
+
+    result: list[dict] = []
+    for cat_id in folder_ids:
+        meta = yml_meta.get(cat_id, {})
+        result.append({
+            "id": cat_id,
+            "label": meta.get("label", cat_id.replace("-", " ").title()),
+            "reflection_prompt": meta.get("reflection_prompt", f"Extract any facts related to {cat_id}."),
+        })
+
+    for cat_id, meta in yml_meta.items():
+        if cat_id not in seen_folder:
+            result.append({
+                "id": cat_id,
+                "label": meta.get("label", cat_id.replace("-", " ").title()),
+                "reflection_prompt": meta.get("reflection_prompt", f"Extract any facts related to {cat_id}."),
+            })
+
+    if not result:
+        return [{"id": "journal", "label": "Journal", "reflection_prompt": "Extract notable facts and learnings."}]
+
+    return result
+
+
+def _load_category_ids(vault_root: Path) -> list[str]:
+    return [c["id"] for c in _load_categories(vault_root)]
 
 
 # --------------------------------------------------------------------------- #
 # Step 2 — Extract facts (Haiku)                                               #
 # --------------------------------------------------------------------------- #
 
-def _extract_facts(log_content: str) -> dict:
-    """Use Haiku to extract facts, mistakes, and open problems from daily log.
-    Returns {facts: [...], mistakes: [...], open_problems: [...]}."""
+def _extract_facts(log_content: str, categories: list[dict]) -> dict:
+    """Use Haiku to extract facts from daily log targeting all memory categories.
+
+    Returns {facts: [...], mistakes: [...], open_problems: [...], shortcuts: [...]}.
+    """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from claude_cli import call_claude  # type: ignore
 
+    category_guidance = "\n".join(
+        f"  - {c['id']}: {c['reflection_prompt']}"
+        for c in categories
+    )
+
     system = "You are a memory extraction assistant for a personal second brain."
     user = (
-        "Extract information from this daily log into four categories.\n"
+        "Extract information from this daily log. Look for content relevant to ANY of these memory categories:\n"
+        f"{category_guidance}\n\n"
         "Output ONLY a valid JSON object with exactly these keys:\n"
-        '  "facts": list of strings (decisions, learnings, preferences — max 15)\n'
-        '  "mistakes": list of {"description": str, "fix": str, "fix_type": "rule"|"code"|"reminder"} — errors made + concrete fix (max 5)\n'
-        '  "open_problems": list of {"description": str, "fix": str, "fix_type": "rule"|"code"|"reminder"} — unresolved issues + proposed solution (max 5)\n'
-        '  "shortcuts": list of strings (approaches that worked well, time-savers, successful patterns — max 5)\n'
-        "fix_type meanings: rule=behavioral rule to add to CLAUDE.md, code=code change needed, reminder=general note.\n"
+        '  "facts": list of strings — ALL items found across ALL categories above. '
+        "Each fact must be specific and self-contained. Capture: projects discussed or initiated "
+        "(with name and purpose), job applications, interview prep done, career goals stated, "
+        "technical decisions, tools adopted or rejected, habits logged, health notes, financial info, "
+        "personal relationships mentioned, goals/intentions expressed, things asked to create or set up, "
+        "agent/system designs discussed, shortcuts or patterns discovered. Max 30 items.\n"
+        '  "mistakes": list of {"description": str, "fix": str, "fix_type": "rule"|"code"|"reminder"} — '
+        "errors made + concrete fix stated as an imperative rule. fix_type: rule=behavioral rule, "
+        "code=code change needed, reminder=general note. Max 5.\n"
+        '  "open_problems": list of {"description": str, "fix": str, "fix_type": "rule"|"code"|"reminder"} — '
+        "unresolved issues + proposed solution as imperative. Max 5.\n"
+        '  "shortcuts": list of strings — approaches that worked well, time-savers, successful patterns. Max 5.\n'
         "No other text.\n\nDaily log:\n" + log_content
     )
 
@@ -87,7 +177,6 @@ def _extract_facts(log_content: str) -> dict:
     raw = raw.strip()
 
     def _normalize_item(item) -> dict:
-        """Normalize a mistake/problem entry — handles both str and dict formats."""
         if isinstance(item, dict):
             return {
                 "description": str(item.get("description", item.get("text", str(item)))),
@@ -121,7 +210,6 @@ def _is_duplicate(fact: str, conn) -> bool:
     from hashlib import sha256 as _sha256
 
     content_hash = _sha256(fact.encode()).hexdigest()
-    # Exact match
     row = conn.execute(
         "SELECT 1 FROM chunks WHERE content_hash = ? AND superseded_by IS NULL LIMIT 1",
         (content_hash,),
@@ -129,7 +217,6 @@ def _is_duplicate(fact: str, conn) -> bool:
     if row:
         return True
 
-    # Semantic near-duplicate
     try:
         from .embeddings import embed_one
     except ImportError:
@@ -170,8 +257,6 @@ def _categorize_facts(facts: list[str], category_ids: list[str]) -> list[dict]:
     )
 
     raw = call_claude(user, system=system, model="sonnet")
-
-    # Strip markdown code fences
     raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
     raw = raw.strip()
@@ -182,10 +267,8 @@ def _categorize_facts(facts: list[str], category_ids: list[str]) -> list[dict]:
             raise ValueError("Expected JSON array")
     except (json.JSONDecodeError, ValueError) as exc:
         print(f"[reflect] WARNING: JSON parse error in categorization: {exc}", file=sys.stderr)
-        # Fallback: assign everything to 'journal'
         return [{"fact": f, "category": "journal"} for f in facts]
 
-    # Validate categories; default unknown to 'journal'
     valid = set(category_ids)
     result = []
     for item in categorized:
@@ -205,42 +288,149 @@ def _categorize_facts(facts: list[str], category_ids: list[str]) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-# Step 4 — Write to MEMORY.md                                                  #
+# Step 4 — Append facts to category .md files                                  #
 # --------------------------------------------------------------------------- #
 
-def _write_memory_section(
+def _build_group_map(vault_root: Path) -> dict[str, str]:
+    """Return {category_id: group_dir_name} by scanning vault/Memory/ structure.
+
+    Flat .md files directly in memory_root map to group="".
+    .md files inside group subdirs map to that group name.
+    """
+    memory_root = vault_root / "Memory"
+    group_map: dict[str, str] = {}
+    if not memory_root.exists():
+        return group_map
+    # Flat .md files directly in memory root (no group)
+    for md_file in memory_root.glob("*.md"):
+        if not md_file.name.startswith("_"):
+            group_map[md_file.stem] = ""
+    # Group subdirs
+    for item in sorted(memory_root.iterdir()):
+        if not item.is_dir() or item.name.startswith("_"):
+            continue
+        for md_file in item.glob("*.md"):
+            group_map[md_file.stem] = item.name
+        for cat_dir in item.iterdir():
+            if cat_dir.is_dir() and not cat_dir.name.startswith("_"):
+                group_map[cat_dir.name] = item.name
+    return group_map
+
+
+def _append_to_category_file(
     vault_root: Path,
     target_date: date,
     categorized_facts: list[dict],
-) -> int:
-    """Append reflection section to vault/MEMORY.md. Returns number of facts written."""
-    memory_path = vault_root / "MEMORY.md"
+    fact_type: str = "fact",
+) -> tuple[int, list[Path]]:
+    """Append facts to vault/Memory/<group>/<category>.md, one section per date.
+
+    Returns (count_written, list_of_modified_file_paths).
+    """
+    group_map = _build_group_map(vault_root)
+    memory_root = vault_root / "Memory"
+    date_str = target_date.strftime("%Y-%m-%d")
+    written = 0
+    modified_paths: list[Path] = []
+
+    # Group by category
+    by_cat: dict[str, list[str]] = {}
+    for item in categorized_facts:
+        by_cat.setdefault(item["category"], []).append(item["fact"])
+
+    for category, facts in by_cat.items():
+        group = group_map.get(category, "")
+        group_dir = memory_root / group if group else memory_root
+        group_dir.mkdir(parents=True, exist_ok=True)
+        cat_file = group_dir / f"{category}.md"
+
+        if cat_file.exists():
+            existing = cat_file.read_text(encoding="utf-8")
+        else:
+            existing = f"# {category.replace('-', ' ').title()}\n"
+
+        new_section = f"\n## {date_str}\n" + "".join(f"- {f}\n" for f in facts)
+        cat_file.write_text(existing + new_section, encoding="utf-8")
+        written += len(facts)
+        if cat_file not in modified_paths:
+            modified_paths.append(cat_file)
+
+    return written, modified_paths
+
+
+# --------------------------------------------------------------------------- #
+# Rebuild PROJECTS.md from Memory/projects.md                                  #
+# --------------------------------------------------------------------------- #
+
+def _update_projects_md(vault_root: Path) -> None:
+    """Rebuild vault/PROJECTS.md as a high-level summary of vault/Memory/projects.md."""
+    projects_mem = vault_root / "Memory" / "projects.md"
+    if not projects_mem.exists():
+        return
+
+    text = projects_mem.read_text(encoding="utf-8")
+    sections = re.split(r'\n## ', text)
+
+    lines = ["# Projects — Henry Liao", ""]
+    for section in sections[1:]:
+        section_lines = section.strip().split('\n')
+        project_name = section_lines[0].strip()
+        # First non-empty content line as summary, stripped of list markers
+        summary = next(
+            (l.strip().lstrip('- ').split('.')[0] for l in section_lines[1:] if l.strip()),
+            ""
+        )
+        if project_name:
+            lines.append(f"## {project_name}")
+            if summary:
+                lines.append(summary)
+            lines.append("")
+
+    (vault_root / "PROJECTS.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Step 6 — Append lessons to RULES.md                                          #
+# --------------------------------------------------------------------------- #
+
+def _append_to_rules_md(
+    vault_root: Path,
+    target_date: date,
+    mistakes: list[dict],
+    open_problems: list[dict],
+) -> None:
+    """Append new rules derived from mistakes/open_problems to vault/RULES.md."""
+    rules_path = vault_root / "RULES.md"
+    if not rules_path.exists():
+        return
 
     date_str = target_date.strftime("%Y-%m-%d")
-    lines = [f"\n## {date_str} Reflection\n"]
+    new_rules: list[str] = []
 
-    for item in categorized_facts:
-        fact = item["fact"]
-        category = item["category"]
-        chunk_id = sha256(fact.encode()).hexdigest()[:8]
-        lines.append(
-            f"- [{category}] {fact} <!-- id:{chunk_id} created:{date_str} -->"
-        )
+    for item in mistakes:
+        desc = item.get("description", "").strip()
+        fix = item.get("fix", "").strip()
+        if fix and desc:
+            new_rules.append(f"- {fix} — {desc}")
+        elif fix:
+            new_rules.append(f"- {fix}")
+        elif desc:
+            new_rules.append(f"- Avoid: {desc}")
 
-    section = "\n".join(lines) + "\n"
+    for item in open_problems:
+        desc = item.get("description", "").strip()
+        fix = item.get("fix", "").strip()
+        if fix and desc:
+            new_rules.append(f"- {fix} — open issue: {desc}")
+        elif desc:
+            new_rules.append(f"- Investigate: {desc}")
 
-    # Create file with header if it doesn't exist
-    if not memory_path.exists():
-        memory_path.write_text(
-            "# Memory — Henry Liao\n\n"
-            "This file is append-only. Facts are never deleted — only superseded.\n\n---\n",
-            encoding="utf-8",
-        )
+    if not new_rules:
+        return
 
-    with memory_path.open("a", encoding="utf-8") as f:
-        f.write(section)
-
-    return len(categorized_facts)
+    existing = rules_path.read_text(encoding="utf-8")
+    new_section = f"\n## Added {date_str}\n" + "\n".join(new_rules) + "\n"
+    rules_path.write_text(existing + new_section, encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -256,9 +446,7 @@ def _write_heartbeat(
     facts_written: int,
     conflicts: list[dict],
 ) -> None:
-    """Overwrite vault/HEARTBEAT.md with reflection summary."""
     heartbeat_path = vault_root / "HEARTBEAT.md"
-
     dt_str = run_dt.strftime("%Y-%m-%d %H:%M")
     yesterday_str = yesterday.strftime("%Y-%m-%d")
     conflicts_count = len(conflicts)
@@ -283,8 +471,7 @@ def _write_heartbeat(
             reason = c.get("reason", "")
             lines.append(f"- [{old_id}] superseded by [{new_id}]: {reason}")
 
-    content = "\n".join(lines) + "\n"
-    heartbeat_path.write_text(content, encoding="utf-8")
+    heartbeat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -292,9 +479,21 @@ def _write_heartbeat(
 # --------------------------------------------------------------------------- #
 
 def _reflect_already_proposed(description: str) -> bool:
-    """Return True if a reflect-mistake/shortcut with this description already exists."""
-    drafts = _PROJECT_ROOT / "vault" / "drafts"
+    """Return True if this mistake/shortcut was already recorded."""
     needle = description[:60].lower()
+
+    # Check RULES.md first — already captured as a rule
+    rules_path = _PROJECT_ROOT / "vault" / "RULES.md"
+    if rules_path.exists():
+        try:
+            rules_text = rules_path.read_text(encoding="utf-8", errors="replace").lower()
+            if needle in rules_text:
+                return True
+        except OSError:
+            pass
+
+    # Check drafts proposals
+    drafts = _PROJECT_ROOT / "vault" / "drafts"
     for folder in ("proposals", "approved", "rejected"):
         d = drafts / folder
         if not d.exists():
@@ -314,18 +513,12 @@ def run_reflection(
     db_path: Path,
     target_date: date | None = None,
 ) -> dict:
-    """Run full reflection pipeline for target_date (default: yesterday).
-
-    Returns:
-        {facts_extracted: N, facts_categorized: M, conflicts_found: C, facts_written: K}
-    """
-    # Support both `python reflect.py` (direct) and `python -m memory.reflect` (module)
+    """Run full reflection pipeline for target_date (default: yesterday)."""
     try:
         from .db import init_db
         from .indexer import index_file
         from .conflict import check_conflicts
     except ImportError:
-        # Direct script execution: add package parent to sys.path
         _pkg_dir = Path(__file__).resolve().parent.parent
         if str(_pkg_dir) not in sys.path:
             sys.path.insert(0, str(_pkg_dir))
@@ -361,25 +554,25 @@ def run_reflection(
             f"skipping reflection.",
             file=sys.stderr,
         )
-        # Still write HEARTBEAT.md so the file is always fresh
         _write_heartbeat(vault_root, run_dt, yesterday, 0, 0, 0, [])
         return zero_result
 
     log_content = daily_log_path.read_text(encoding="utf-8")
-
-    # Optionally read HEARTBEAT for context (not strictly needed for extraction)
-    heartbeat_path = vault_root / "HEARTBEAT.md"
-    # We just note its existence; no further use required by spec
-    _ = heartbeat_path.exists()
+    _ = (vault_root / "HEARTBEAT.md").exists()
 
     # ---------------------------------------------------------------------- #
     # Step 2 — Extract facts/mistakes/open_problems (Haiku)                  #
     # ---------------------------------------------------------------------- #
-    category_ids = _load_category_ids(vault_root)
+    categories = _load_categories(vault_root)
+    category_ids = [c["id"] for c in categories]
 
-    buckets = _extract_facts(log_content)
-    facts_extracted = (len(buckets["facts"]) + len(buckets["mistakes"])
-                       + len(buckets["open_problems"]) + len(buckets.get("shortcuts", [])))
+    buckets = _extract_facts(log_content, categories)
+    facts_extracted = (
+        len(buckets["facts"])
+        + len(buckets["mistakes"])
+        + len(buckets["open_problems"])
+        + len(buckets.get("shortcuts", []))
+    )
 
     # ---------------------------------------------------------------------- #
     # Step 3 — Categorize facts (Sonnet)                                      #
@@ -388,24 +581,27 @@ def run_reflection(
     facts_categorized = len(categorized)
 
     # ---------------------------------------------------------------------- #
-    # Step 4 — Dedup check + write to MEMORY.md                              #
+    # Step 4 — Dedup check + append to category .md files                    #
     # ---------------------------------------------------------------------- #
     conn = init_db(db_path)
 
     surviving = [item for item in categorized if not _is_duplicate(item["fact"], conn)]
-    facts_written = _write_memory_section(vault_root, yesterday, surviving)
+    facts_written, new_paths = _append_to_category_file(vault_root, yesterday, surviving, "fact")
 
     # ---------------------------------------------------------------------- #
-    # Step 5 — Re-index MEMORY.md                                             #
+    # Step 5 — Index modified files                                           #
     # ---------------------------------------------------------------------- #
-    memory_path = vault_root / "MEMORY.md"
-    index_file(memory_path, vault_root, conn)
+    for path in new_paths:
+        index_file(path, vault_root, conn)
     conn.commit()
 
+    # Rebuild PROJECTS.md if any facts went to the projects category
+    if any(item["category"] == "projects" for item in surviving):
+        _update_projects_md(vault_root)
+
     # ---------------------------------------------------------------------- #
-    # Step 6 — Check conflicts (read-only) + write proposals                  #
+    # Step 6 — Conflicts + append lessons to RULES.md + shortcuts to snippets #
     # ---------------------------------------------------------------------- #
-    # Import proposals helper
     try:
         _scripts_parent = Path(__file__).resolve().parent.parent
         import sys as _sys
@@ -416,13 +612,12 @@ def run_reflection(
     except ImportError:
         _has_proposals = False
 
-    yesterday_str = yesterday.strftime("%Y-%m-%d")
     today_start_ts = time.mktime(date.today().timetuple())
     new_chunk_ids = [
         row[0]
         for row in conn.execute(
-            "SELECT id FROM chunks WHERE path LIKE ? AND created_at > ?",
-            ("%MEMORY.md%", today_start_ts),
+            "SELECT id FROM chunks WHERE created_at > ?",
+            (today_start_ts,),
         ).fetchall()
     ]
 
@@ -446,46 +641,36 @@ def run_reflection(
                 "reflect.py",
                 f"Conflict: {conflict['old_id']} vs {conflict['new_id']}",
             )
-        for item in buckets["mistakes"]:
-            desc = item["description"]
-            fix = item["fix"]
-            fix_type = item["fix_type"]
-            if _reflect_already_proposed(desc):
-                print(f"[reflect] Skip duplicate mistake: {desc[:60]}", file=sys.stderr)
-                continue
-            body = f"**Problem:** {desc}\n\n**Fix ({fix_type}):** {fix}" if fix else desc
-            write_proposal(
-                "reflect-mistake",
-                {"description": desc, "fix_description": fix, "fix_type": fix_type,
-                 "context": yesterday_str, "suggested_category": "debugging"},
-                "reflect.py",
-                body,
-            )
-        for item in buckets["open_problems"]:
-            desc = item["description"]
-            fix = item["fix"]
-            fix_type = item["fix_type"]
-            if _reflect_already_proposed(desc):
-                print(f"[reflect] Skip duplicate open_problem: {desc[:60]}", file=sys.stderr)
-                continue
-            body = f"**Problem:** {desc}\n\n**Fix ({fix_type}):** {fix}" if fix else desc
-            write_proposal(
-                "reflect-mistake",
-                {"description": desc, "fix_description": fix, "fix_type": fix_type,
-                 "context": yesterday_str, "suggested_category": "debugging"},
-                "reflect.py",
-                body,
-            )
-        for shortcut in buckets.get("shortcuts", []):
-            if _reflect_already_proposed(shortcut):
-                print(f"[reflect] Skip duplicate shortcut: {shortcut[:60]}", file=sys.stderr)
-                continue
-            write_proposal(
-                "reflect-shortcut",
-                {"description": shortcut, "context": yesterday_str, "suggested_category": "snippets"},
-                "reflect.py",
-                shortcut,
-            )
+
+    # Mistakes + open_problems → RULES.md
+    new_mistakes = []
+    new_open_problems = []
+    for item in buckets["mistakes"]:
+        if _reflect_already_proposed(item["description"]):
+            print(f"[reflect] Skip duplicate mistake: {item['description'][:60]}", file=sys.stderr)
+            continue
+        new_mistakes.append(item)
+        print(f"[reflect] Adding rule from mistake: {item['description'][:60]}", file=sys.stderr)
+    for item in buckets["open_problems"]:
+        if _reflect_already_proposed(item["description"]):
+            print(f"[reflect] Skip duplicate open_problem: {item['description'][:60]}", file=sys.stderr)
+            continue
+        new_open_problems.append(item)
+        print(f"[reflect] Adding rule from open_problem: {item['description'][:60]}", file=sys.stderr)
+    _append_to_rules_md(vault_root, yesterday, new_mistakes, new_open_problems)
+
+    # Shortcuts → RULES.md (patterns that worked well)
+    new_shortcuts = [s for s in buckets.get("shortcuts", []) if not _reflect_already_proposed(s)]
+    if new_shortcuts:
+        shortcut_items = [{"description": s, "fix": s, "fix_type": "rule"} for s in new_shortcuts]
+        rules_path = vault_root / "RULES.md"
+        if rules_path.exists():
+            date_str = yesterday.strftime("%Y-%m-%d")
+            existing = rules_path.read_text(encoding="utf-8")
+            new_section = f"\n## Shortcuts {date_str}\n" + "".join(f"- {s}\n" for s in new_shortcuts)
+            rules_path.write_text(existing + new_section, encoding="utf-8")
+        for s in new_shortcuts:
+            print(f"[reflect] Added shortcut to RULES.md: {s[:60]}", file=sys.stderr)
 
     conn.commit()
     conn.close()
@@ -509,12 +694,9 @@ def run_reflection(
     import subprocess as _subprocess
     yesterday_str_for_wiki = yesterday.strftime("%Y-%m-%d")
     _subprocess.run(
-        [
-            "llmwiki", "index", "add",
-            f"sessions/{yesterday_str_for_wiki}.md",
-            f"Session {yesterday_str_for_wiki}: nightly reflect pass",
-        ],
+        f'llmwiki index add "sessions/{yesterday_str_for_wiki}.md" "Session {yesterday_str_for_wiki}: nightly reflect pass"',
         capture_output=True,
+        shell=True,
     )
 
     return {
@@ -556,7 +738,6 @@ if __name__ == "__main__":
     if args.db is not None:
         db_path = Path(args.db)
     else:
-        # Auto-detect: project_root/data/memory.sqlite
         db_path = _PROJECT_ROOT / "data" / "memory.sqlite"
 
     target_date: date | None = None
