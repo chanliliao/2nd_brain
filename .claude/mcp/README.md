@@ -21,8 +21,8 @@ Add to `mcpServers` in `~/.claude/settings.json` or the project's `.claude/setti
 {
   "mcpServers": {
     "second-brain": {
-      "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe",
-      "args": ["C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\mcp\\second_brain_server.py"]
+      "command": "C:\\Users\\cliao\\Desktop\\Coding\\Claude Projects\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe",
+      "args": ["C:\\Users\\cliao\\Desktop\\Coding\\Claude Projects\\2nd_Brain\\.claude\\mcp\\second_brain_server.py"]
     }
   }
 }
@@ -36,8 +36,8 @@ Add to `~/.cursor/mcp.json` (or the workspace `.cursor/mcp.json`):
 {
   "mcpServers": {
     "second-brain": {
-      "command": "C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe",
-      "args": ["C:\\Users\\cliao\\Desktop\\2nd_Brain\\.claude\\mcp\\second_brain_server.py"]
+      "command": "C:\\Users\\cliao\\Desktop\\Coding\\Claude Projects\\2nd_Brain\\.claude\\venv\\Scripts\\python.exe",
+      "args": ["C:\\Users\\cliao\\Desktop\\Coding\\Claude Projects\\2nd_Brain\\.claude\\mcp\\second_brain_server.py"]
     }
   }
 }
@@ -50,8 +50,8 @@ from anthropic import Anthropic
 from anthropic.beta.mcp import stdio_client, StdioServerParameters
 
 server = StdioServerParameters(
-    command=r"C:\Users\cliao\Desktop\2nd_Brain\.claude\venv\Scripts\python.exe",
-    args=[r"C:\Users\cliao\Desktop\2nd_Brain\.claude\mcp\second_brain_server.py"],
+    command=r"C:\Users\cliao\Desktop\Coding\Claude Projects\2nd_Brain\.claude\venv\Scripts\python.exe",
+    args=[r"C:\Users\cliao\Desktop\Coding\Claude Projects\2nd_Brain\.claude\mcp\second_brain_server.py"],
 )
 
 async with stdio_client(server) as (read, write):
